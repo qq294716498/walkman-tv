@@ -264,6 +264,17 @@ private fun RecommendGrid(
     }
   }
 
+  fun openCloudSonglist(info: com.walkman.tv.data.model.SonglistInfo) {
+    if (loadingDetail) return
+    scope.launch {
+      loadingDetail = true
+      runCatching { appContainer.neteaseAccount.playlistTracks(info.id) }
+        .onSuccess { tracks -> detail = DetailView(info.name, info.author, tracks) }
+        .onFailure { accountError = it.message ?: "歌单加载失败" }
+      loadingDetail = false
+    }
+  }
+
   fun openBoard(board: com.walkman.tv.data.model.BoardInfo) {
     if (loadingDetail) return
     scope.launch {
@@ -337,7 +348,7 @@ private fun RecommendGrid(
     cloudLists?.let { lists ->
       CloudPlaylistDialog(lists, onDismiss = { cloudLists = null }) { info ->
         cloudLists = null
-        openSonglist(info)
+        openCloudSonglist(info)
       }
     }
     accountError?.let { message ->
