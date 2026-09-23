@@ -66,7 +66,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
     }
 
     suspend fun daily(): List<Track> =
-        tracks(post("/weapi/v3/discovery/recommend/songs", JSONObject())
+        tracks(api("/api/v3/discovery/recommend/songs", "")
             .optJSONObject("data")?.optJSONArray("dailySongs"))
 
     suspend fun fm(): List<Track> =
@@ -76,8 +76,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         val account = post("/weapi/nuser/account/get", JSONObject())
         val userId = account.optJSONObject("profile")?.optLong("userId") ?: 0L
         if (userId <= 0L) throw IllegalStateException("账号已失效，请重新连接")
-        val response = post("/weapi/user/playlist",
-            JSONObject().put("uid", userId).put("limit", 100).put("offset", 0))
+        val response = api("/api/user/playlist", "uid=$userId&limit=500&offset=0")
         val array = response.optJSONArray("playlist") ?: return emptyList()
         return (0 until array.length()).mapNotNull { i ->
             val item = array.optJSONObject(i) ?: return@mapNotNull null
@@ -101,7 +100,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
                 .put("startMusicId", seed).put("count", 30))
         val data = intelligence.optJSONArray("data") ?: return emptyList()
         val songs = JSONArray()
-        for (i in 0 until data.length()) data.optJSONObject(i)?.optJSONObject("songInfo")?.let(songs::put)
+        for (i in 0 until data.length()) data.optJSONObject(i)?.optJSONObject("songInfo")?.let { songs.put(it) }
         return tracks(songs)
     }
 
@@ -114,17 +113,34 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         return tracks(detail.optJSONObject("playlist")?.optJSONArray("tracks"))
     }
 
+    suspend fun playlistTracks(id: String): List<Track> =
+        tracks(post("/weapi/v6/playlist/detail",
+            JSONObject().put("id", id).put("n", 1000).put("s", 8))
+            .optJSONObject("playlist")?.optJSONArray("tracks"))
+
+    private suspend fun api(path: String, form: String): JSONObject {
+        val session = cookie ?: throw IllegalStateException("请先连接网易云账号")
+        val response = JSONObject(http.postForm("https://music.163.com$path", form,
+            mapOf("Cookie" to session, "Referer" to "https://music.163.com/")))
+        if (response.optInt("code", 200) != 200)
+            throw IllegalStateException(response.optString("message").ifBlank { "网易云请求失败" })
+        return response
+    }
+
     private suspend fun post(path: String, payload: JSONObject, overrideCookie: String? = null): JSONObject {
         val session = overrideCookie ?: cookie
         if (path !in listOf("/weapi/login/qrcode/unikey", "/weapi/login/qrcode/client/login")
             && session.isNullOrBlank()) throw IllegalStateException("请先连接网易云账号")
+        val csrf = session?.split(";")?.map { it.trim() }
+            ?.firstOrNull { it.startsWith("__csrf=") }?.substringAfter("=") ?: ""
+        if (csrf.isNotBlank()) payload.put("csrf_token", csrf)
         val (params, key) = NeteaseWeApi.encode(payload.toString())
         val headers = mutableMapOf("Referer" to "https://music.163.com/",
             "Origin" to "https://music.163.com",
             "User-Agent" to "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
         if (!session.isNullOrBlank()) headers["Cookie"] = session
         val body = "params=\${urlEncode(params)}&encSecKey=\${urlEncode(key)}"
-        val response = JSONObject(http.postForm("https://music.163.com$path", body, headers))
+        val response = JSONObject(http.postForm("https://music.163.com$path?csrf_token=${urlEncode(csrf)}", body, headers))
         val code = response.optInt("code", 200)
         if (code != 200 && code !in listOf(800, 801, 802, 803))
             throw IllegalStateException(response.optString("message").ifBlank { "网易云请求失败（$code）" })
