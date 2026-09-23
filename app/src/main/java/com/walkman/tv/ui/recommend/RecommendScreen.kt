@@ -360,7 +360,7 @@ private fun RecommendGrid(
     }
 
     if (showAccountPreview) {
-      AccountConnectDialog(onDismiss = { showAccountPreview = false })
+      CloudAccountDialog(onDismiss = { showAccountPreview = false })
     }
 
     cloudLists?.let { lists ->
@@ -495,126 +495,6 @@ private fun PersonalTile(
           maxLines = 1, overflow = TextOverflow.Ellipsis)
       }
     }
-  }
-}
-
-@Composable
-private fun AccountConnectDialog(onDismiss: () -> Unit) {
-  val account = appContainer.neteaseAccount
-  val state by account.state.collectAsState()
-  val scope = androidx.compose.runtime.rememberCoroutineScope()
-  var qrKey by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-  var status by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("请用网易云音乐扫码") }
-  var busy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-  var error by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-
-  androidx.compose.runtime.LaunchedEffect(qrKey) {
-    val key = qrKey ?: return@LaunchedEffect
-    while (true) {
-      kotlinx.coroutines.delay(2000)
-      runCatching { account.pollQr(key) }
-        .onSuccess { code ->
-          when (code) {
-            802 -> status = "已扫码，请在手机上确认"
-            803 -> { qrKey = null; onDismiss(); return@LaunchedEffect }
-            800 -> { qrKey = null; error = "二维码已过期，请重新生成"; return@LaunchedEffect }
-          }
-        }
-        .onFailure { qrKey = null; error = it.message ?: "登录失败"; return@LaunchedEffect }
-    }
-  }
-
-  qrKey?.let { key ->
-    com.walkman.tv.ui.components.QrDialog(
-      url = account.qrUrl(key),
-      title = "网易云音乐扫码登录",
-      subtitle = status,
-      onDismiss = { qrKey = null },
-    )
-    return
-  }
-  Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-    Column(
-      modifier = Modifier.width(480.dp).clip(RoundedCornerShape(20.dp))
-        .background(AppColors.BgPanel).padding(24.dp),
-      verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-      Text("连接音乐账号", color = AppColors.TextPrimary, fontSize = 22.sp,
-        fontWeight = FontWeight.Bold)
-      Text(if (state.connected) "当前使用：${state.nickname}" else "添加账号后可使用专属推荐与云端歌单",
-        color = AppColors.TextSecondary, fontSize = 14.sp)
-      Text("网易云音乐", color = AppColors.TextPrimary, fontSize = 15.sp,
-        fontWeight = FontWeight.Bold)
-      if (state.accounts.isNotEmpty()) {
-        androidx.compose.foundation.lazy.LazyColumn(
-          modifier = Modifier.fillMaxWidth().height(172.dp),
-          verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-          items(state.accounts) { saved ->
-            TvFocusable(
-              onClick = { account.select(saved.id) },
-              modifier = Modifier.fillMaxWidth().height(46.dp),
-              shape = RoundedCornerShape(12.dp),
-            ) {
-              Row(Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Text(saved.nickname, color = AppColors.TextPrimary,
-                  modifier = Modifier.weight(1f), fontSize = 14.sp)
-                Text(if (saved.id == state.activeId) "使用中" else "切换",
-                  color = AppColors.BrandPrimary, fontSize = 12.sp)
-              }
-            }
-          }
-        }
-      }
-      TvFocusable(
-        onClick = {
-          if (!busy) scope.launch {
-            busy = true
-            runCatching { account.newQr() }
-              .onSuccess { qrKey = it; status = "请用网易云音乐扫码" }
-              .onFailure { error = it.message ?: "无法生成二维码" }
-            busy = false
-          }
-        },
-        modifier = Modifier.fillMaxWidth().height(50.dp),
-        shape = RoundedCornerShape(12.dp),
-      ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp),
-          verticalAlignment = Alignment.CenterVertically) {
-          Text("＋ 添加网易云账号", color = AppColors.TextPrimary, fontSize = 15.sp,
-            modifier = Modifier.weight(1f))
-          Text(if (busy) "加载中…" else "扫码", color = AppColors.BrandPrimary,
-            fontSize = 13.sp)
-        }
-      }
-      AccountPlatformRow("QQ 音乐（接入中）", AppColors.SourceTx)
-      error?.let { Text(it, color = AppColors.BrandPrimary, fontSize = 13.sp) }
-      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        if (state.connected) {
-          TvPill(onClick = { account.disconnect(); onDismiss() }) {
-            Text("断开连接", fontSize = 14.sp)
-          }
-          Spacer(Modifier.width(12.dp))
-        }
-        TvPill(onClick = onDismiss) { Text("关闭", fontSize = 14.sp) }
-      }
-    }
-  }
-}
-
-@Composable
-private fun AccountPlatformRow(name: String, tint: Color) {
-  Row(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-      .background(AppColors.Card).padding(horizontal = 14.dp, vertical = 11.dp),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Box(modifier = Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(tint))
-    Spacer(Modifier.width(11.dp))
-    Text(name, modifier = Modifier.weight(1f), color = AppColors.TextPrimary,
-      fontSize = 14.sp)
-    Text("未连接", color = AppColors.TextMuted, fontSize = 12.sp)
   }
 }
 
