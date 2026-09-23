@@ -14,13 +14,32 @@ import org.json.JSONObject
 
 /** Account session stays on this device; platform cookies never enter the repository. */
 class NeteaseAccount(private val context: Context, private val http: CatalogHttp) {
-    data class State(val connected: Boolean = false, val nickname: String = "")
+    data class Account(val id: String, val nickname: String)
+    data class State(val accounts: List<Account> = emptyList(), val activeId: String? = null) {
+        val connected: Boolean get() = activeId != null && accounts.any { it.id == activeId }
+        val nickname: String get() = accounts.firstOrNull { it.id == activeId }?.nickname.orEmpty()
+    }
+    private data class Session(val id: String, val nickname: String, val cookie: String)
     private val prefs = context.getSharedPreferences("cloud_account", Context.MODE_PRIVATE)
-    private val mutableState = MutableStateFlow(State())
+    private val sessions = restoreSessions().toMutableList()
+    private var activeId = prefs.getString("active_id", null)?.takeIf { id ->
+        sessions.any { it.id == id }
+    } ?: sessions.firstOrNull()?.id
+    private var cookie: String? = sessions.firstOrNull { it.id == activeId }?.cookie
+    private val mutableState = MutableStateFlow(snapshot())
     val state = mutableState.asStateFlow()
-    private var cookie: String? = restore()
 
-    init { if (cookie != null) mutableState.value = State(true, prefs.getString("nickname", "") ?: "") }
+    private fun snapshot(): State = State(
+        sessions.map { Account(it.id, it.nickname) }, activeId
+    )
+
+    fun select(id: String) {
+        val session = sessions.firstOrNull { it.id == id } ?: return
+        activeId = session.id
+        cookie = session.cookie
+        prefs.edit().putString("active_id", id).apply()
+        mutableState.value = snapshot()
+    }
 
     suspend fun newQr(): String {
         val response = post("/weapi/login/qrcode/unikey", JSONObject().put("type", 1))
@@ -30,7 +49,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         return key
     }
 
-    fun qrUrl(key: String): String = "https://music.163.com/login?codekey=\${urlEncode(key)}"
+    fun qrUrl(key: String): String = "https://music.163.com/login?codekey=${urlEncode(key)}"
 
     /** 801 waiting, 802 scanned, 803 connected, 800 expired. */
     suspend fun pollQr(key: String): Int {
@@ -44,19 +63,24 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
                 .optJSONObject("profile")
             if (profile == null || profile.optLong("userId") <= 0L)
                 throw IllegalStateException("登录成功但未能读取账号信息")
-            cookie = newCookie
+            val id = profile.optLong("userId").toString()
             val name = profile.optString("nickname").ifBlank { "网易云用户" }
-            prefs.edit().putString("session", CloudCipher.encrypt(newCookie))
-                .putString("nickname", name).apply()
-            mutableState.value = State(true, name)
+            sessions.removeAll { it.id == id }
+            sessions.add(Session(id, name, newCookie))
+            activeId = id
+            cookie = newCookie
+            persist()
+            mutableState.value = snapshot()
         }
         return code
     }
 
     fun disconnect() {
-        cookie = null
-        prefs.edit().remove("session").remove("nickname").apply()
-        mutableState.value = State()
+        sessions.removeAll { it.id == activeId }
+        activeId = sessions.firstOrNull()?.id
+        cookie = sessions.firstOrNull { it.id == activeId }?.cookie
+        persist()
+        mutableState.value = snapshot()
     }
 
     suspend fun daily(): List<Track> =
@@ -149,7 +173,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
             "Origin" to "https://music.163.com",
             "User-Agent" to "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
         if (!session.isNullOrBlank()) headers["Cookie"] = session
-        val body = "params=\${urlEncode(params)}&encSecKey=\${urlEncode(key)}"
+        val body = "params=${urlEncode(params)}&encSecKey=${urlEncode(key)}"
         val response = JSONObject(http.postForm("https://music.163.com$path?csrf_token=${urlEncode(csrf)}", body, headers))
         val code = response.optInt("code", 200)
         if (code != 200 && code !in listOf(800, 801, 802, 803))
@@ -178,7 +202,31 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         }
     }
 
-    private fun restore(): String? = runCatching {
-        prefs.getString("session", null)?.let(CloudCipher::decrypt)
-    }.getOrNull()
+    private fun persist() {
+        val array = JSONArray()
+        sessions.forEach { session ->
+            array.put(JSONObject().put("id", session.id).put("nickname", session.nickname)
+                .put("cookie", session.cookie))
+        }
+        prefs.edit().putString("accounts", CloudCipher.encrypt(array.toString()))
+            .putString("active_id", activeId)
+            .remove("session").remove("nickname").apply()
+    }
+
+    private fun restoreSessions(): List<Session> = runCatching {
+        val saved = prefs.getString("accounts", null)
+        if (saved != null) {
+            val array = JSONArray(CloudCipher.decrypt(saved))
+            return@runCatching (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val id = item.optString("id")
+                val value = item.optString("cookie")
+                if (id.isBlank() || value.isBlank()) return@mapNotNull null
+                Session(id, item.optString("nickname"), value)
+            }
+        }
+        val legacy = prefs.getString("session", null)?.let(CloudCipher::decrypt)
+        if (legacy.isNullOrBlank()) emptyList() else
+            listOf(Session("legacy", prefs.getString("nickname", "") ?: "", legacy))
+    }.getOrDefault(emptyList())
 }
