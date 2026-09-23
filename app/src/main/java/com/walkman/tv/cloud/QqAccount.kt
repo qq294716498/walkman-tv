@@ -42,6 +42,9 @@ class QqAccount(
     val state = mutableState.asStateFlow()
 
     private fun snapshot() = State(sessions.map { Account(it.id, it.name) }, activeId)
+    private fun sessionFor(accountId: String?): Session =
+        sessions.firstOrNull { it.id == (accountId ?: activeId) }
+            ?: throw IllegalStateException("请先连接 QQ 音乐账号")
     private fun current(): Session = sessions.firstOrNull { it.id == activeId }
         ?: throw IllegalStateException("请先连接 QQ 音乐账号")
 
@@ -160,18 +163,19 @@ class QqAccount(
         mutableState.value = snapshot()
     }
 
-    suspend fun playlists(): List<SonglistInfo> {
-        val s = current()
+    suspend fun playlists(accountId: String? = null): List<SonglistInfo> {
+        val s = sessionFor(accountId)
         // QQ exposes these lists through both the musicu gateway and legacy profile APIs.
         // Keep each source independent so one unavailable endpoint cannot hide all lists.
         val created = runCatching {
             cgi("music.musicasset.PlaylistBaseRead", "GetPlaylistByUin",
-                JSONObject().put("uin", s.id)).optJSONArray("v_playlist")
+                JSONObject().put("uin", s.id), accountId = accountId)
+                .optJSONArray("v_playlist")
         }
         val favourites = runCatching {
             cgi("music.musicasset.PlaylistFavRead", "CgiGetPlaylistFavInfo",
-                JSONObject().put("uin", s.encryptUin).put("offset", 0).put("size", 100))
-                .optJSONArray("v_list")
+                JSONObject().put("uin", s.encryptUin).put("offset", 0).put("size", 100),
+                accountId = accountId).optJSONArray("v_list")
         }
         val createdRows = parsePlaylists(created.getOrNull(), s.name)
             .ifEmpty { parsePlaylists(runCatching {
@@ -249,7 +253,7 @@ class QqAccount(
     private fun qqCookies(s: Session): String =
         "uin=${s.id}; qqmusic_uin=${s.id}; qm_keyst=${s.key}; qqmusic_key=${s.key}"
 
-    suspend fun playlistTracks(id: String): List<Track> {
+    suspend fun playlistTracks(id: String, accountId: String? = null): List<Track> {
         val out = mutableListOf<Track>()
         for (page in 0..9) {
             val data = cgi("music.srfDissInfo.DissInfo", "CgiGetDiss",
@@ -257,7 +261,8 @@ class QqAccount(
                     .put("dirid", if (id == "qq-liked:201") 201 else 0)
                     .put("tag", true).put("song_begin", page * 100)
                     .put("song_num", 100).put("userinfo", true)
-                    .put("orderlist", true).put("onlysonglist", false))
+                    .put("orderlist", true).put("onlysonglist", false),
+                accountId = accountId)
             val batch = tracks(data.optJSONArray("songlist"))
             out.addAll(batch)
             if (batch.size < 100) break
@@ -292,8 +297,8 @@ class QqAccount(
     }
 
     private suspend fun cgi(module: String, method: String, param: JSONObject,
-        loginType: Int? = null): JSONObject {
-        val s = if (loginType == null) current() else null
+        loginType: Int? = null, accountId: String? = null): JSONObject {
+        val s = if (loginType == null) sessionFor(accountId) else null
         val comm = JSONObject().put("ct", if (s == null) 24 else 19)
             .put("cv", if (s == null) 4747474 else 0)
             .put("platform", "yqq.json").put("chid", "0")

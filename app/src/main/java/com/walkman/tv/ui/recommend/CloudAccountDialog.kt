@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -61,6 +63,7 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
     LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
     var neteaseQr by remember { mutableStateOf<String?>(null) }
     var qqQr by remember { mutableStateOf<QqAccount.Qr?>(null) }
+    var showSms by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("请扫码登录") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -133,6 +136,15 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
         return
     }
 
+    if (showSms) {
+        NeteaseSmsLoginDialog(onDismiss = { showSms = false }, onConnected = {
+            appContainer.cloudSelection.select(SourceID.WY)
+            showSms = false
+            onDismiss()
+        })
+        return
+    }
+
     Dialog(onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -142,21 +154,11 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
         ) {
             Text("音乐账号", color = AppColors.TextPrimary, fontSize = 22.sp,
                 fontWeight = FontWeight.Bold)
-            Text("连接多个账号，选择一个用于推荐页",
+            Text("在推荐页左右切换账号；在这里添加或移除账号",
                 color = AppColors.TextSecondary, fontSize = 13.sp)
-            Text("网易云音乐", color = AppColors.TextPrimary, fontSize = 15.sp,
+            Text("网易云音乐 · ${neteaseState.accounts.size} 个账号",
+                color = AppColors.TextPrimary, fontSize = 15.sp,
                 fontWeight = FontWeight.Bold)
-            LazyColumn(Modifier.fillMaxWidth().height(104.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                items(neteaseState.accounts) { account ->
-                    AccountRow(account.nickname,
-                        active == SourceID.WY && account.id == neteaseState.activeId) {
-                        netease.select(account.id)
-                        appContainer.cloudSelection.select(SourceID.WY)
-                        onDismiss()
-                    }
-                }
-            }
             AccountRow("＋ 添加网易云账号", false, firstFocus) {
                 if (!busy) scope.launch {
                     busy = true
@@ -167,19 +169,12 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
                     busy = false
                 }
             }
-            Text("QQ 音乐", color = AppColors.TextPrimary, fontSize = 15.sp,
-                fontWeight = FontWeight.Bold)
-            LazyColumn(Modifier.fillMaxWidth().height(104.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                items(qqState.accounts) { account ->
-                    AccountRow(account.name,
-                        active == SourceID.TX && account.id == qqState.activeId) {
-                        qq.select(account.id)
-                        appContainer.cloudSelection.select(SourceID.TX)
-                        onDismiss()
-                    }
-                }
+            AccountRow("＋ 手机号验证码登录网易云", false) {
+                showSms = true
             }
+            Text("QQ 音乐 · ${qqState.accounts.size} 个账号",
+                color = AppColors.TextPrimary, fontSize = 15.sp,
+                fontWeight = FontWeight.Bold)
             AccountRow("＋ 添加 QQ 音乐账号", false) {
                 if (!busy) scope.launch {
                     busy = true
@@ -244,6 +239,100 @@ private fun QqQrDialog(qr: QqAccount.Qr, status: String, onDismiss: () -> Unit) 
                 }
             } else Text("二维码图像无效", color = AppColors.TextSecondary)
             TvPill(onClick = onDismiss) { Text("取消", fontSize = 14.sp) }
+        }
+    }
+}
+
+
+@Composable
+private fun NeteaseSmsLoginDialog(onDismiss: () -> Unit, onConnected: () -> Unit) {
+    val account = appContainer.neteaseAccount
+    val scope = rememberCoroutineScope()
+    var phone by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var countdown by remember { mutableStateOf(0) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val phoneFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { phoneFocus.requestFocus() } }
+    LaunchedEffect(countdown) {
+        if (countdown > 0) {
+            delay(1_000)
+            countdown -= 1
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.width(440.dp).clip(RoundedCornerShape(18.dp))
+                .background(AppColors.BgPanel).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("网易云手机验证码登录", color = AppColors.TextPrimary,
+                fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("目前支持中国大陆 +86 手机号",
+                color = AppColors.TextSecondary, fontSize = 12.sp)
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it.filter(Char::isDigit).take(11) },
+                label = { Text("手机号") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = AppColors.TextPrimary,
+                    unfocusedTextColor = AppColors.TextPrimary,
+                    focusedBorderColor = AppColors.BrandPrimary,
+                    unfocusedBorderColor = AppColors.TextMuted,
+                    cursorColor = AppColors.BrandPrimary,
+                ),
+                modifier = Modifier.fillMaxWidth().focusRequester(phoneFocus),
+            )
+            OutlinedTextField(
+                value = code,
+                onValueChange = { code = it.filter(Char::isDigit).take(8) },
+                label = { Text("短信验证码") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = AppColors.TextPrimary,
+                    unfocusedTextColor = AppColors.TextPrimary,
+                    focusedBorderColor = AppColors.BrandPrimary,
+                    unfocusedBorderColor = AppColors.TextMuted,
+                    cursorColor = AppColors.BrandPrimary,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            message?.let { Text(it, color = AppColors.BrandPrimary, fontSize = 12.sp) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TvPill(onClick = {
+                    if (!busy && countdown == 0) scope.launch {
+                        busy = true
+                        message = null
+                        runCatching { account.sendCode(phone) }
+                            .onSuccess {
+                                countdown = 60
+                                message = "验证码已发送"
+                            }
+                            .onFailure { message = it.message ?: "发送失败" }
+                        busy = false
+                    }
+                }) {
+                    Text(if (countdown > 0) "重新发送 ${countdown}s" else "发送验证码",
+                        fontSize = 13.sp)
+                }
+                TvPill(onClick = {
+                    if (!busy) scope.launch {
+                        busy = true
+                        message = null
+                        runCatching { account.loginWithCode(phone, code) }
+                            .onSuccess { onConnected() }
+                            .onFailure { message = it.message ?: "登录失败" }
+                        busy = false
+                    }
+                }) { Text(if (busy) "处理中…" else "登录", fontSize = 13.sp) }
+                TvPill(onClick = onDismiss) { Text("返回", fontSize = 13.sp) }
+            }
         }
     }
 }

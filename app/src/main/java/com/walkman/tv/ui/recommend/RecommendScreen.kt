@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -36,8 +37,9 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.walkman.tv.playback.LyricParser
+import com.walkman.tv.data.model.SourceID
 import com.walkman.tv.ui.NavSection
 import com.walkman.tv.ui.appContainer
 import com.walkman.tv.ui.components.Artwork
@@ -208,6 +211,8 @@ private fun CircleControl(icon: androidx.compose.ui.graphics.vector.ImageVector,
 // ============== 右侧推荐内容 =====================================================
 
 private data class DetailView(val title: String, val subtitle: String?, val tracks: List<com.walkman.tv.data.model.Track>)
+private data class CloudAccountOption(val source: SourceID, val id: String, val name: String)
+private data class CloudPlaylistEntry(val account: CloudAccountOption, val info: com.walkman.tv.data.model.SonglistInfo)
 
 @Composable
 private fun RecommendGrid(
@@ -224,8 +229,21 @@ private fun RecommendGrid(
   val netease by appContainer.neteaseAccount.state.collectAsState()
   val qq by appContainer.qqAccount.state.collectAsState()
   val activeSource by appContainer.cloudSelection.source.collectAsState()
-  val connected = if (activeSource == com.walkman.tv.data.model.SourceID.TX) qq.connected else netease.connected
-  val accountName = if (activeSource == com.walkman.tv.data.model.SourceID.TX) "QQ 音乐 · ${qq.name}" else "网易云 · ${netease.nickname}"
+  val connected = if (activeSource == SourceID.TX) qq.connected else netease.connected
+  val accounts = netease.accounts.map { CloudAccountOption(SourceID.WY, it.id, it.nickname) } +
+    qq.accounts.map { CloudAccountOption(SourceID.TX, it.id, it.name) }
+  val selectedIndex = accounts.indexOfFirst { it.source == activeSource &&
+    it.id == (if (it.source == SourceID.TX) qq.activeId else netease.activeId) }
+  val accountName = accounts.getOrNull(selectedIndex)?.let {
+    "${if (it.source == SourceID.TX) "QQ音乐" else "网易云"} · ${it.name}"
+  }
+  fun selectAccount(step: Int) {
+    if (accounts.size < 2) return
+    val next = accounts[(selectedIndex.coerceAtLeast(0) + step + accounts.size) % accounts.size]
+    if (next.source == SourceID.TX) appContainer.qqAccount.select(next.id)
+    else appContainer.neteaseAccount.select(next.id)
+    appContainer.cloudSelection.select(next.source)
+  }
   androidx.compose.runtime.LaunchedEffect(activeSource, netease.connected, qq.connected) {
     if (activeSource == com.walkman.tv.data.model.SourceID.WY && !netease.connected && qq.connected)
       appContainer.cloudSelection.select(com.walkman.tv.data.model.SourceID.TX)
@@ -233,9 +251,36 @@ private fun RecommendGrid(
       appContainer.cloudSelection.select(com.walkman.tv.data.model.SourceID.WY)
   }
   var accountError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-  var cloudLists by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<com.walkman.tv.data.model.SonglistInfo>?>(null) }
+  var cloudEntries by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<CloudPlaylistEntry>>(emptyList()) }
+  var cloudLoading by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+  var cloudError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+  var cloudRefresh by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+  val listState = rememberLazyListState()
+
+  androidx.compose.runtime.LaunchedEffect(netease.accounts, qq.accounts, cloudRefresh) {
+    cloudLoading = true
+    cloudError = null
+    cloudEntries = emptyList()
+    val loaded = mutableListOf<CloudPlaylistEntry>()
+    val failures = mutableListOf<String>()
+    for (account in accounts) {
+      val result = runCatching {
+        if (account.source == SourceID.TX) appContainer.qqAccount.playlists(account.id)
+        else appContainer.neteaseAccount.playlists(account.id)
+      }
+      result.onSuccess { lists -> loaded += lists.map { CloudPlaylistEntry(account, it) } }
+        .onFailure { failures += "${if (account.source == SourceID.TX) "QQ音乐" else "网易云"} · ${account.name}: ${it.message ?: "读取失败"}" }
+    }
+    cloudEntries = loaded
+    cloudError = failures.takeIf { it.isNotEmpty() }?.joinToString("\n")
+    cloudLoading = false
+  }
 
   fun openPersonal(kind: String) {
+    if (kind == "云端歌单") {
+      scope.launch { listState.animateScrollToItem(1) }
+      return
+    }
     if (!connected) { showAccountPreview = true; return }
     if (loadingDetail) return
     scope.launch {
@@ -247,7 +292,6 @@ private fun RecommendGrid(
             "私人 FM" -> detail = DetailView(kind, "QQ 音乐 · 电台推荐", appContainer.qqAccount.guessLike())
             "心动模式" -> detail = DetailView(kind, "QQ 音乐 · 我喜欢", appContainer.qqAccount.heart())
             "猜你喜欢" -> detail = DetailView(kind, "QQ 音乐", appContainer.qqAccount.guessLike())
-            "云端歌单" -> cloudLists = appContainer.qqAccount.playlists()
           }
         } else {
           when (kind) {
@@ -255,11 +299,10 @@ private fun RecommendGrid(
             "私人 FM" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.fm())
             "心动模式" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.heart())
             "猜你喜欢" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.guessLike())
-            "云端歌单" -> cloudLists = appContainer.neteaseAccount.playlists()
           }
         }
       }.onFailure { accountError = it.message ?: "加载失败，请稍后再试" }
-      if (kind != "云端歌单" && detail?.tracks?.isEmpty() == true) {
+      if (detail?.tracks?.isEmpty() == true) {
         detail = null
         accountError = "当前账号没有返回可播放歌曲，请稍后重试。"
       }
@@ -288,16 +331,19 @@ private fun RecommendGrid(
     }
   }
 
-  fun openCloudSonglist(info: com.walkman.tv.data.model.SonglistInfo) {
+  fun openCloudSonglist(entry: CloudPlaylistEntry) {
     if (loadingDetail) return
     scope.launch {
       loadingDetail = true
       runCatching {
-        if (info.source == com.walkman.tv.data.model.SourceID.TX)
-          appContainer.qqAccount.playlistTracks(info.id)
-        else appContainer.neteaseAccount.playlistTracks(info.id)
+        if (entry.account.source == SourceID.TX)
+          appContainer.qqAccount.playlistTracks(entry.info.id, entry.account.id)
+        else appContainer.neteaseAccount.playlistTracks(entry.info.id, entry.account.id)
       }
-        .onSuccess { tracks -> detail = DetailView(info.name, info.author, tracks) }
+        .onSuccess { tracks ->
+          detail = DetailView(entry.info.name,
+            "${if (entry.account.source == SourceID.TX) "QQ音乐" else "网易云"} · ${entry.account.name}", tracks)
+        }
         .onFailure { accountError = it.message ?: "歌单加载失败" }
       loadingDetail = false
     }
@@ -321,6 +367,7 @@ private fun RecommendGrid(
   Box(modifier = modifier) {
     androidx.compose.foundation.lazy.LazyColumn(
       modifier = Modifier.fillMaxSize().focusGroup(),
+      state = listState,
       contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 32.dp),
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -328,9 +375,17 @@ private fun RecommendGrid(
         PersonalizedIntro(
           onOpenAccount = { showAccountPreview = true },
           onSelectPersonal = ::openPersonal,
-          connectedName = accountName.takeIf { connected },
+          connectedName = accountName,
+          accountCount = accounts.size,
+          onPreviousAccount = { selectAccount(-1) },
+          onNextAccount = { selectAccount(1) },
           onNavigate = onNavigate,
         )
+      }
+      item {
+        CloudLibrarySection(cloudEntries, cloudLoading, cloudError,
+          onRefresh = { cloudRefresh += 1 }, onSelect = ::openCloudSonglist,
+          onConnect = { showAccountPreview = true })
       }
       when {
         settings.homeSources.isEmpty() -> item { NoSourcesHint(onNavigate) }
@@ -373,12 +428,6 @@ private fun RecommendGrid(
       CloudAccountDialog(onDismiss = { showAccountPreview = false })
     }
 
-    cloudLists?.let { lists ->
-      CloudPlaylistDialog(lists, onDismiss = { cloudLists = null }) { info ->
-        cloudLists = null
-        openCloudSonglist(info)
-      }
-    }
     accountError?.let { message ->
       androidx.compose.material3.AlertDialog(
         onDismissRequest = { accountError = null },
@@ -410,41 +459,78 @@ private fun PersonalizedIntro(
   onOpenAccount: () -> Unit,
   onSelectPersonal: (String) -> Unit,
   connectedName: String?,
+  accountCount: Int,
+  onPreviousAccount: () -> Unit,
+  onNextAccount: () -> Unit,
   onNavigate: (NavSection) -> Unit,
 ) {
   Column(
     modifier = Modifier.fillMaxWidth(),
     verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    TvFocusable(
-      onClick = onOpenAccount,
-      modifier = Modifier.fillMaxWidth().height(68.dp),
-      shape = RoundedCornerShape(18.dp),
-      container = AppColors.BgPanel,
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically,
     ) {
-      Row(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
+      if (accountCount > 1) {
+        TvFocusable(onClick = onPreviousAccount,
+          modifier = Modifier.width(42.dp).height(68.dp),
+          shape = RoundedCornerShape(16.dp)) {
+          Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("‹", color = AppColors.TextPrimary, fontSize = 28.sp)
+          }
+        }
+      }
+      TvFocusable(
+        onClick = onOpenAccount,
+        modifier = Modifier.weight(1f).height(68.dp).onPreviewKeyEvent { event ->
+          if (event.type != KeyEventType.KeyDown || accountCount < 2) false
+          else when (event.key) {
+            Key.DirectionLeft -> { onPreviousAccount(); true }
+            Key.DirectionRight -> { onNextAccount(); true }
+            else -> false
+          }
+        },
+        shape = RoundedCornerShape(18.dp),
+        container = AppColors.BgPanel,
       ) {
-        Box(
-          modifier = Modifier.size(38.dp).clip(RoundedCornerShape(12.dp))
-            .background(AppColors.BrandPrimary.copy(alpha = 0.17f)),
-          contentAlignment = Alignment.Center,
+        Row(
+          modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+          verticalAlignment = Alignment.CenterVertically,
         ) {
-          Icon(Icons.Filled.AccountCircle, contentDescription = null,
-            tint = AppColors.BrandPrimary, modifier = Modifier.size(24.dp))
+          Box(
+            modifier = Modifier.size(38.dp).clip(RoundedCornerShape(12.dp))
+              .background(AppColors.BrandPrimary.copy(alpha = 0.17f)),
+            contentAlignment = Alignment.Center,
+          ) {
+            Icon(Icons.Filled.AccountCircle, contentDescription = null,
+              tint = AppColors.BrandPrimary, modifier = Modifier.size(24.dp))
+          }
+          Spacer(Modifier.width(12.dp))
+          Column(modifier = Modifier.weight(1f)) {
+            Text(connectedName ?: "连接你的音乐", color = AppColors.TextPrimary, fontSize = 17.sp,
+              fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (accountCount > 1) "左右切换账号 · 点击管理"
+              else "网易云 · QQ音乐 · 点击管理",
+              color = AppColors.TextSecondary, fontSize = 12.sp)
+          }
+          Box(
+            modifier = Modifier.clip(RoundedCornerShape(50))
+              .background(AppColors.Card).padding(horizontal = 12.dp, vertical = 6.dp),
+          ) {
+            Text(if (connectedName == null) "尚未连接" else "已连接",
+              color = AppColors.TextSecondary, fontSize = 12.sp)
+          }
         }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-          Text(connectedName ?: "连接你的音乐", color = AppColors.TextPrimary, fontSize = 17.sp,
-            fontWeight = FontWeight.Bold)
-          Text("网易云 · QQ音乐", color = AppColors.TextSecondary, fontSize = 12.sp)
-        }
-        Box(
-          modifier = Modifier.clip(RoundedCornerShape(50))
-            .background(AppColors.Card).padding(horizontal = 12.dp, vertical = 6.dp),
-        ) {
-          Text(if (connectedName == null) "尚未连接" else "已连接", color = AppColors.TextSecondary, fontSize = 12.sp)
+      }
+      if (accountCount > 1) {
+        TvFocusable(onClick = onNextAccount,
+          modifier = Modifier.width(42.dp).height(68.dp),
+          shape = RoundedCornerShape(16.dp)) {
+          Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("›", color = AppColors.TextPrimary, fontSize = 28.sp)
+          }
         }
       }
     }
@@ -456,7 +542,8 @@ private fun PersonalizedIntro(
       Text("你的音乐", color = AppColors.TextPrimary, fontSize = 21.sp,
         fontWeight = FontWeight.Bold)
       Spacer(Modifier.width(10.dp))
-      Text(if (connectedName == null) "连接账号后开启" else "来自你的音乐账号", color = AppColors.TextMuted, fontSize = 12.sp,
+      Text(if (connectedName == null) "连接账号后开启" else "来自当前音乐账号",
+        color = AppColors.TextMuted, fontSize = 12.sp,
         modifier = Modifier.padding(bottom = 3.dp))
     }
 
@@ -471,7 +558,7 @@ private fun PersonalizedIntro(
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
       PersonalTile("猜你喜欢", "发现合口味的歌", Icons.Filled.AutoAwesome,
         Modifier.weight(1f)) { onSelectPersonal("猜你喜欢") }
-      PersonalTile("云端歌单", "同步收藏与自建", Icons.Filled.CloudQueue,
+      PersonalTile("云端歌单", "网易云与 QQ 合集", Icons.Filled.CloudQueue,
         Modifier.weight(1f)) { onSelectPersonal("云端歌单") }
       PersonalTile("精选歌单", "发现更多好音乐", Icons.Filled.LibraryMusic,
         Modifier.weight(1f)) { onNavigate(NavSection.Songlist) }
@@ -509,36 +596,54 @@ private fun PersonalTile(
 }
 
 @Composable
-private fun CloudPlaylistDialog(
-  lists: List<com.walkman.tv.data.model.SonglistInfo>,
-  onDismiss: () -> Unit,
-  onSelect: (com.walkman.tv.data.model.SonglistInfo) -> Unit,
+private fun CloudLibrarySection(
+  entries: List<CloudPlaylistEntry>,
+  loading: Boolean,
+  error: String?,
+  onRefresh: () -> Unit,
+  onSelect: (CloudPlaylistEntry) -> Unit,
+  onConnect: () -> Unit,
 ) {
-  Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-    Column(Modifier.width(560.dp).height(520.dp).clip(RoundedCornerShape(18.dp))
-      .background(AppColors.BgPanel).padding(20.dp)) {
-      Text("云端歌单", color = AppColors.TextPrimary, fontSize = 20.sp,
-        fontWeight = FontWeight.Bold)
-      Spacer(Modifier.height(12.dp))
-      if (lists.isEmpty()) Text("账号下暂无歌单", color = AppColors.TextSecondary)
-      androidx.compose.foundation.lazy.LazyColumn(
-        modifier = Modifier.weight(1f),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+  Column(
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+      .background(AppColors.BgPanel).padding(16.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Text("我的云端歌单", color = AppColors.TextPrimary,
+        fontSize = 21.sp, fontWeight = FontWeight.Bold)
+      Spacer(Modifier.width(10.dp))
+      Text("网易云 · QQ音乐 · ${entries.size} 个",
+        color = AppColors.TextSecondary, fontSize = 12.sp,
+        modifier = Modifier.weight(1f))
+      TvPill(onClick = onRefresh) { Text("刷新", fontSize = 12.sp) }
+    }
+    if (entries.isNotEmpty()) {
+      androidx.compose.foundation.lazy.LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
       ) {
-        items(lists) { info ->
-          TvFocusable(onClick = { onSelect(info) }, modifier = Modifier.fillMaxWidth().height(60.dp),
-            shape = RoundedCornerShape(12.dp)) {
-            Column(Modifier.fillMaxSize().padding(horizontal = 15.dp, vertical = 8.dp)) {
-              Text(info.name, color = AppColors.TextPrimary, fontSize = 15.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-              Text("${info.trackCount ?: 0} 首 · ${info.author}", color = AppColors.TextSecondary,
-                fontSize = 12.sp, maxLines = 1)
-            }
-          }
+        items(entries, key = { "${it.account.source}:${it.account.id}:${it.info.id}" }) { entry ->
+          AlbumCard(
+            picURL = entry.info.picURL,
+            title = entry.info.name,
+            subtitle = "${if (entry.account.source == SourceID.TX) "QQ音乐" else "网易云"} · ${entry.account.name}",
+            fallbackTint = entry.account.source.tintColor(),
+            onClick = { onSelect(entry) },
+          )
         }
       }
-      TvPill(onClick = onDismiss) { Text("返回", fontSize = 14.sp) }
+    } else {
+      Text(
+        when {
+          loading -> "正在同步云端歌单…"
+          error != null -> "歌单暂时无法读取，请点刷新重试"
+          else -> "暂无云端歌单，连接网易云或 QQ 音乐后会显示在这里"
+        },
+        color = AppColors.TextSecondary, fontSize = 13.sp,
+      )
+      if (!loading) TvPill(onClick = onConnect) { Text("连接账号", fontSize = 13.sp) }
     }
+    if (error != null) Text(error, color = AppColors.TextSecondary, fontSize = 12.sp)
   }
 }
 

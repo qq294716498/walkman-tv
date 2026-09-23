@@ -29,6 +29,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
     private val mutableState = MutableStateFlow(snapshot())
     val state = mutableState.asStateFlow()
     private val qrCookies = mutableMapOf<String, String>()
+    private val smsCookies = mutableMapOf<String, String>()
     private val qrHeaders = mapOf(
         "Referer" to "https://music.163.com/",
         "Origin" to "https://music.163.com",
@@ -82,20 +83,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         )
         if (code == 803) {
             qrCookies.remove(key)
-            if (!receivedCookie.split(";").any { it.trim().startsWith("MUSIC_U=") })
-                throw IllegalStateException("扫码已确认，但平台未返回登录凭据")
-            val profile = post("/weapi/nuser/account/get", JSONObject(), receivedCookie)
-                .optJSONObject("profile")
-            if (profile == null || profile.optLong("userId") <= 0L)
-                throw IllegalStateException("登录成功但未能读取账号信息")
-            val id = profile.optLong("userId").toString()
-            val name = profile.optString("nickname").ifBlank { "网易云用户" }
-            sessions.removeAll { it.id == id }
-            sessions.add(Session(id, name, receivedCookie))
-            activeId = id
-            cookie = receivedCookie
-            persist()
-            mutableState.value = snapshot()
+            completeLogin(receivedCookie)
         } else if (code == 800) {
             qrCookies.remove(key)
         } else if (code == 801 || code == 802) {
@@ -120,6 +108,82 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         return merged.entries.joinToString("; ") { (key, value) -> "$key=$value" }
     }
 
+    /** Send a verification code to a mainland China mobile number. */
+    suspend fun sendCode(phone: String) {
+        require(phone.length == 11 && phone.startsWith("1") && phone.all(Char::isDigit)) {
+            "请输入 11 位手机号"
+        }
+        val (response, receivedCookie) = unauthPost(
+            "/weapi/sms/captcha/sent",
+            JSONObject().put("ctcode", "86")
+                .put("secrete", "music_middleuser_pclogin")
+                .put("cellphone", phone),
+        )
+        if (response.optInt("code") != 200)
+            throw IllegalStateException(
+                response.optString("message").ifBlank { "验证码发送失败（${response.optInt("code")}）" }
+            )
+        smsCookies[phone] = receivedCookie
+    }
+
+    suspend fun loginWithCode(phone: String, code: String) {
+        require(phone.length == 11 && phone.startsWith("1") && phone.all(Char::isDigit)) {
+            "请输入 11 位手机号"
+        }
+        require(code.length in 4..8 && code.all(Char::isDigit)) { "请输入短信验证码" }
+        val (response, receivedCookie) = unauthPost(
+            "/weapi/w/login/cellphone",
+            JSONObject().put("type", "1").put("https", "true")
+                .put("phone", phone).put("countrycode", "86")
+                .put("captcha", code).put("remember", "true")
+                .put("secureCaptcha", ""),
+            smsCookies[phone].orEmpty(),
+        )
+        if (response.optInt("code") != 200)
+            throw IllegalStateException(
+                response.optString("message").ifBlank { "验证码登录失败（${response.optInt("code")}）" }
+            )
+        completeLogin(mergeCookies(receivedCookie, response.optString("cookie")))
+        smsCookies.remove(phone)
+    }
+
+    private suspend fun unauthPost(
+        path: String, payload: JSONObject, requestCookie: String = "",
+    ): Pair<JSONObject, String> {
+        val (params, key) = NeteaseWeApi.encode(payload.toString())
+        val headers = if (requestCookie.isBlank()) qrHeaders
+            else qrHeaders + ("Cookie" to requestCookie)
+        val result = http.postFormResponse(
+            "https://music.163.com$path?csrf_token=",
+            "params=${urlEncode(params)}&encSecKey=${urlEncode(key)}",
+            headers,
+        )
+        return JSONObject(result.text) to mergeCookies(
+            requestCookie, result.cookies.joinToString("; ")
+        )
+    }
+
+    private suspend fun completeLogin(receivedCookie: String) {
+        if (!receivedCookie.split(";").any { it.trim().startsWith("MUSIC_U=") })
+            throw IllegalStateException("平台未返回登录凭据")
+        val profile = post("/weapi/nuser/account/get", JSONObject(), receivedCookie)
+            .optJSONObject("profile")
+        if (profile == null || profile.optLong("userId") <= 0L)
+            throw IllegalStateException("登录成功但未能读取账号信息")
+        val id = profile.optLong("userId").toString()
+        val name = profile.optString("nickname").ifBlank { "网易云用户" }
+        sessions.removeAll { it.id == id }
+        sessions.add(Session(id, name, receivedCookie))
+        activeId = id
+        cookie = receivedCookie
+        persist()
+        mutableState.value = snapshot()
+    }
+
+    private fun sessionFor(accountId: String?): Session =
+        sessions.firstOrNull { it.id == (accountId ?: activeId) }
+            ?: throw IllegalStateException("请先连接网易云账号")
+
     fun disconnect() {
         sessions.removeAll { it.id == activeId }
         activeId = sessions.firstOrNull()?.id
@@ -135,11 +199,12 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
     suspend fun fm(): List<Track> =
         tracks(post("/weapi/v1/radio/get", JSONObject()).optJSONArray("data"))
 
-    suspend fun playlists(): List<SonglistInfo> {
-        val account = post("/weapi/nuser/account/get", JSONObject())
+    suspend fun playlists(accountId: String? = null): List<SonglistInfo> {
+        val session = sessionFor(accountId)
+        val account = post("/weapi/nuser/account/get", JSONObject(), session.cookie)
         val userId = account.optJSONObject("profile")?.optLong("userId") ?: 0L
         if (userId <= 0L) throw IllegalStateException("账号已失效，请重新连接")
-        val response = api("/api/user/playlist?uid=$userId&limit=500&offset=0")
+        val response = api("/api/user/playlist?uid=$userId&limit=500&offset=0", session.cookie)
         val array = response.optJSONArray("playlist") ?: return emptyList()
         return (0 until array.length()).mapNotNull { i ->
             val item = array.optJSONObject(i) ?: return@mapNotNull null
@@ -178,9 +243,10 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         return tracks(detail.optJSONObject("playlist")?.optJSONArray("tracks"))
     }
 
-    suspend fun playlistTracks(id: String): List<Track> {
+    suspend fun playlistTracks(id: String, accountId: String? = null): List<Track> {
+        val session = sessionFor(accountId)
         val playlist = post("/weapi/v6/playlist/detail",
-            JSONObject().put("id", id).put("n", 1000).put("s", 8))
+            JSONObject().put("id", id).put("n", 1000).put("s", 8), session.cookie)
             .optJSONObject("playlist") ?: return emptyList()
         val full = tracks(playlist.optJSONArray("tracks"))
         val ids = playlist.optJSONArray("trackIds") ?: return full
@@ -191,14 +257,14 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         val byId = full.associateBy { it.songmid }.toMutableMap()
         for (chunk in order.filterNot { byId.containsKey(it) }.chunked(100)) {
             val list = "[${chunk.joinToString(",")}]"
-            val response = api("/api/song/detail/?ids=${urlEncode(list)}")
+            val response = api("/api/song/detail/?ids=${urlEncode(list)}", session.cookie)
             tracks(response.optJSONArray("songs")).forEach { byId[it.songmid] = it }
         }
         return order.mapNotNull(byId::get)
     }
 
-    private suspend fun api(path: String): JSONObject {
-        val session = cookie ?: throw IllegalStateException("请先连接网易云账号")
+    private suspend fun api(path: String, overrideCookie: String? = null): JSONObject {
+        val session = overrideCookie ?: cookie ?: throw IllegalStateException("请先连接网易云账号")
         val response = JSONObject(http.getText("https://music.163.com$path",
             mapOf("Cookie" to session, "Referer" to "https://music.163.com/")))
         if (response.optInt("code", 200) != 200)
