@@ -108,7 +108,7 @@ android.applicationVariants.all { variant ->
     variant.outputs.each { output ->
         def abi = output.getFilter(OutputFile.ABI)
         def tag = abi ?: "universal"
-        output.outputFileName = "walkman-tv-${variant.versionName}-${tag}-${variant.buildType.name}.apk"
+        output.outputFileName = "好听-tv-${variant.versionName}-${tag}-${variant.buildType.name}.apk"
     }
 }
 
