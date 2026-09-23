@@ -113,10 +113,24 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         return tracks(detail.optJSONObject("playlist")?.optJSONArray("tracks"))
     }
 
-    suspend fun playlistTracks(id: String): List<Track> =
-        tracks(post("/weapi/v6/playlist/detail",
+    suspend fun playlistTracks(id: String): List<Track> {
+        val playlist = post("/weapi/v6/playlist/detail",
             JSONObject().put("id", id).put("n", 1000).put("s", 8))
-            .optJSONObject("playlist")?.optJSONArray("tracks"))
+            .optJSONObject("playlist") ?: return emptyList()
+        val full = tracks(playlist.optJSONArray("tracks"))
+        val ids = playlist.optJSONArray("trackIds") ?: return full
+        if (ids.length() <= full.size) return full
+        val order = (0 until ids.length()).mapNotNull {
+            ids.optJSONObject(it)?.optLong("id")?.takeIf { value -> value > 0L }?.toString()
+        }
+        val byId = full.associateBy { it.songmid }.toMutableMap()
+        for (chunk in order.filterNot { byId.containsKey(it) }.chunked(100)) {
+            val list = "[${chunk.joinToString(",")}]"
+            val response = api("/api/song/detail/?ids=${urlEncode(list)}", "")
+            tracks(response.optJSONArray("songs")).forEach { byId[it.songmid] = it }
+        }
+        return order.mapNotNull(byId::get)
+    }
 
     private suspend fun api(path: String, form: String): JSONObject {
         val session = cookie ?: throw IllegalStateException("请先连接网易云账号")
