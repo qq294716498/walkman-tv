@@ -289,7 +289,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             if (dlPermHint) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "需要存储写入权限：请在系统设置里为「随便听」开启文件访问（或允许存储权限），返回后再点选择。",
+                    "需要存储写入权限：请在系统设置里为「好听-tv」开启文件访问（或允许存储权限），返回后再点选择。",
                     color = AppColors.Warning,
                     fontSize = 11.sp,
                 )
@@ -595,7 +595,7 @@ private fun UpdateSection() {
                 Text("下载完成", color = AppColors.AccentGreen, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 if (permHint) {
                     Text(
-                        "请在系统弹出的设置里允许「随便听」安装未知应用，返回后再点「立即安装」。",
+                        "请在系统弹出的设置里允许「好听-tv」安装未知应用，返回后再点「立即安装」。",
                         color = AppColors.Warning, fontSize = 12.sp,
                     )
                 }
