@@ -228,11 +228,13 @@ class QqAccount(
     private suspend fun cgi(module: String, method: String, param: JSONObject,
         loginType: Int? = null): JSONObject {
         val s = if (loginType == null) current() else null
-        val comm = JSONObject().put("ct", 24).put("cv", 0)
-        if (s != null) {
-            comm.put("uin", s.id).put("qq", s.id)
-                .put("authst", s.key).put("tmeLoginType", 2)
-        }
+        val comm = JSONObject().put("ct", 24).put("cv", 4747474)
+            .put("platform", "yqq.json").put("chid", "0")
+            .put("uin", s?.id ?: "0")
+            .put("g_tk", if (s == null) 5381 else hash33(s.key, 5381))
+            .put("g_tk_new_20200303", if (s == null) 5381 else hash33(s.key, 5381))
+            .put("format", "json").put("inCharset", "utf-8")
+            .put("outCharset", "utf-8").put("notice", 0).put("needNewCode", 1)
         if (loginType != null) comm.put("tmeLoginType", loginType)
         val payload = JSONObject().put("comm", comm)
             .put("req_0", JSONObject().put("module", module)
