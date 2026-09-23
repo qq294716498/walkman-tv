@@ -31,7 +31,8 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
 
     suspend fun newQr(): String {
         val response = post("/weapi/login/qrcode/unikey", JSONObject().put("type", 1))
-        val key = response.optJSONObject("data")?.optString("unikey").orEmpty()
+        val key = response.optJSONObject("data")?.optString("unikey")
+            .orEmpty().ifBlank { response.optString("unikey") }
         if (key.isBlank()) throw IllegalStateException("无法生成网易云登录二维码")
         return key
     }
@@ -66,7 +67,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
     }
 
     suspend fun daily(): List<Track> =
-        tracks(api("/api/v3/discovery/recommend/songs", "")
+        tracks(api("/api/v3/discovery/recommend/songs")
             .optJSONObject("data")?.optJSONArray("dailySongs"))
 
     suspend fun fm(): List<Track> =
@@ -76,7 +77,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         val account = post("/weapi/nuser/account/get", JSONObject())
         val userId = account.optJSONObject("profile")?.optLong("userId") ?: 0L
         if (userId <= 0L) throw IllegalStateException("账号已失效，请重新连接")
-        val response = api("/api/user/playlist", "uid=$userId&limit=500&offset=0")
+        val response = api("/api/user/playlist?uid=$userId&limit=500&offset=0")
         val array = response.optJSONArray("playlist") ?: return emptyList()
         return (0 until array.length()).mapNotNull { i ->
             val item = array.optJSONObject(i) ?: return@mapNotNull null
@@ -89,7 +90,9 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
     }
 
     suspend fun heart(): List<Track> {
-        val liked = playlists().firstOrNull() ?: return emptyList()
+        val lists = playlists()
+        val liked = lists.firstOrNull { it.name.contains("喜欢") } ?: lists.firstOrNull()
+            ?: return emptyList()
         val response = post("/weapi/v6/playlist/detail",
             JSONObject().put("id", liked.id).put("n", 100).put("s", 8))
         val sourceTracks = response.optJSONObject("playlist")?.optJSONArray("tracks")
@@ -126,15 +129,15 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         val byId = full.associateBy { it.songmid }.toMutableMap()
         for (chunk in order.filterNot { byId.containsKey(it) }.chunked(100)) {
             val list = "[${chunk.joinToString(",")}]"
-            val response = api("/api/song/detail/?ids=${urlEncode(list)}", "")
+            val response = api("/api/song/detail/?ids=${urlEncode(list)}")
             tracks(response.optJSONArray("songs")).forEach { byId[it.songmid] = it }
         }
         return order.mapNotNull(byId::get)
     }
 
-    private suspend fun api(path: String, form: String): JSONObject {
+    private suspend fun api(path: String): JSONObject {
         val session = cookie ?: throw IllegalStateException("请先连接网易云账号")
-        val response = JSONObject(http.postForm("https://music.163.com$path", form,
+        val response = JSONObject(http.getText("https://music.163.com$path",
             mapOf("Cookie" to session, "Referer" to "https://music.163.com/")))
         if (response.optInt("code", 200) != 200)
             throw IllegalStateException(response.optString("message").ifBlank { "网易云请求失败" })
