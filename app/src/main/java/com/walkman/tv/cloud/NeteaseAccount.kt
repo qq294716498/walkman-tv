@@ -1,9 +1,6 @@
 package com.walkman.tv.cloud
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.util.Base64
 import com.walkman.tv.data.model.Quality
 import com.walkman.tv.data.model.SonglistInfo
 import com.walkman.tv.data.model.SourceID
@@ -14,10 +11,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
-import java.security.KeyStore
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.spec.GCMParameterSpec
 
 /** Account session stays on this device; platform cookies never enter the repository. */
 class NeteaseAccount(private val context: Context, private val http: CatalogHttp) {
@@ -53,7 +46,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
                 throw IllegalStateException("登录成功但未能读取账号信息")
             cookie = newCookie
             val name = profile.optString("nickname").ifBlank { "网易云用户" }
-            prefs.edit().putString("session", encrypt(newCookie))
+            prefs.edit().putString("session", CloudCipher.encrypt(newCookie))
                 .putString("nickname", name).apply()
             mutableState.value = State(true, name)
         }
@@ -185,29 +178,7 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         }
     }
 
-    private fun key(): javax.crypto.SecretKey {
-        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey("walkman_cloud_session", null) as? javax.crypto.SecretKey)?.let { return it }
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder("walkman_cloud_session",
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
-        }.generateKey()
-    }
-
-    private fun encrypt(value: String): String {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key())
-        val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        return Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
-    }
-
     private fun restore(): String? = runCatching {
-        val raw = prefs.getString("session", null) ?: return@runCatching null
-        val bytes = Base64.decode(raw, Base64.DEFAULT)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
-        String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)
+        prefs.getString("session", null)?.let(CloudCipher::decrypt)
     }.getOrNull()
 }
