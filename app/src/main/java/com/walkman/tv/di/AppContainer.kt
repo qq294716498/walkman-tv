@@ -57,6 +57,8 @@ class AppContainer(val appContext: Context) {
 
     val catalogHttp by lazy { CatalogHttp(httpClient) }
     val neteaseAccount by lazy { com.walkman.tv.cloud.NeteaseAccount(appContext, catalogHttp) }
+    val kugouAccount by lazy { com.walkman.tv.cloud.KugouAccount(appContext, catalogHttp) }
+    val cloudSelection by lazy { com.walkman.tv.cloud.CloudSelection(appContext) }
 
     val catalogs by lazy { Catalogs(catalogHttp) }
     val hotSearch by lazy { com.walkman.tv.source.catalog.HotSearch(catalogHttp) }
