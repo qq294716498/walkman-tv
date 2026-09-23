@@ -221,6 +221,27 @@ private fun RecommendGrid(
   var detail by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<DetailView?>(null) }
   var loadingDetail by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   var showAccountPreview by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+  val account by appContainer.neteaseAccount.state.collectAsState()
+  var accountError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+  var cloudLists by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<com.walkman.tv.data.model.SonglistInfo>?>(null) }
+
+  fun openPersonal(kind: String) {
+    if (!account.connected) { showAccountPreview = true; return }
+    if (loadingDetail) return
+    scope.launch {
+      loadingDetail = true
+      runCatching {
+        when (kind) {
+          "每日推荐" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.daily())
+          "私人 FM" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.fm())
+          "心动模式" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.heart())
+          "猜你喜欢" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.guessLike())
+          "云端歌单" -> cloudLists = appContainer.neteaseAccount.playlists()
+        }
+      }.onFailure { accountError = it.message ?: "加载失败，请稍后再试" }
+      loadingDetail = false
+    }
+  }
 
   androidx.compose.runtime.LaunchedEffect(settings.homeSources) {
     appContainer.homeStore.loadIfNeeded(settings.homeSources)
@@ -267,6 +288,8 @@ private fun RecommendGrid(
       item {
         PersonalizedIntro(
           onOpenAccount = { showAccountPreview = true },
+          onSelectPersonal = ::openPersonal,
+          connectedName = account.nickname.takeIf { account.connected },
           onNavigate = onNavigate,
         )
       }
@@ -308,7 +331,23 @@ private fun RecommendGrid(
     }
 
     if (showAccountPreview) {
-      AccountPreviewDialog(onDismiss = { showAccountPreview = false })
+      AccountConnectDialog(onDismiss = { showAccountPreview = false })
+    }
+
+    cloudLists?.let { lists ->
+      CloudPlaylistDialog(lists, onDismiss = { cloudLists = null }) { info ->
+        cloudLists = null
+        openSonglist(info)
+      }
+    }
+    accountError?.let { message ->
+      androidx.compose.material3.AlertDialog(
+        onDismissRequest = { accountError = null },
+        title = { Text("账号内容", color = AppColors.TextPrimary) },
+        text = { Text(message, color = AppColors.TextSecondary) },
+        confirmButton = { TvPill(onClick = { accountError = null }) { Text("知道了") } },
+        containerColor = AppColors.BgPanel,
+      )
     }
 
     detail?.let { d ->
@@ -325,12 +364,13 @@ private fun RecommendGrid(
 
 /**
  * Account and personal music entry points stay visible even while public recommendations load.
- * The account service is a later phase, so every personal tile opens an honest connection
- * preview instead of pretending to play personalized content.
+ * Personal tiles use the connected account's catalog, while public sections stay available.
  */
 @Composable
 private fun PersonalizedIntro(
   onOpenAccount: () -> Unit,
+  onSelectPersonal: (String) -> Unit,
+  connectedName: String?,
   onNavigate: (NavSection) -> Unit,
 ) {
   Column(
@@ -357,7 +397,7 @@ private fun PersonalizedIntro(
         }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-          Text("连接你的音乐", color = AppColors.TextPrimary, fontSize = 17.sp,
+          Text(connectedName ?: "连接你的音乐", color = AppColors.TextPrimary, fontSize = 17.sp,
             fontWeight = FontWeight.Bold)
           Text("网易云 · QQ音乐 · 酷狗", color = AppColors.TextSecondary, fontSize = 12.sp)
         }
@@ -365,7 +405,7 @@ private fun PersonalizedIntro(
           modifier = Modifier.clip(RoundedCornerShape(50))
             .background(AppColors.Card).padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
-          Text("尚未连接", color = AppColors.TextSecondary, fontSize = 12.sp)
+          Text(if (connectedName == null) "尚未连接" else "已连接", color = AppColors.TextSecondary, fontSize = 12.sp)
         }
       }
     }
@@ -377,23 +417,23 @@ private fun PersonalizedIntro(
       Text("你的音乐", color = AppColors.TextPrimary, fontSize = 21.sp,
         fontWeight = FontWeight.Bold)
       Spacer(Modifier.width(10.dp))
-      Text("连接账号后开启", color = AppColors.TextMuted, fontSize = 12.sp,
+      Text(if (connectedName == null) "连接账号后开启" else "来自你的音乐账号", color = AppColors.TextMuted, fontSize = 12.sp,
         modifier = Modifier.padding(bottom = 3.dp))
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
       PersonalTile("每日推荐", "每天一份新鲜歌单", Icons.Filled.Today,
-        Modifier.weight(1f), onOpenAccount)
+        Modifier.weight(1f)) { onSelectPersonal("每日推荐") }
       PersonalTile("私人 FM", "随心听下一首", Icons.Filled.Radio,
-        Modifier.weight(1f), onOpenAccount)
+        Modifier.weight(1f)) { onSelectPersonal("私人 FM") }
       PersonalTile("心动模式", "从喜欢出发", Icons.Filled.Favorite,
-        Modifier.weight(1f), onOpenAccount)
+        Modifier.weight(1f)) { onSelectPersonal("心动模式") }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
       PersonalTile("猜你喜欢", "发现合口味的歌", Icons.Filled.AutoAwesome,
-        Modifier.weight(1f), onOpenAccount)
+        Modifier.weight(1f)) { onSelectPersonal("猜你喜欢") }
       PersonalTile("云端歌单", "同步收藏与自建", Icons.Filled.CloudQueue,
-        Modifier.weight(1f), onOpenAccount)
+        Modifier.weight(1f)) { onSelectPersonal("云端歌单") }
       PersonalTile("精选歌单", "发现更多好音乐", Icons.Filled.LibraryMusic,
         Modifier.weight(1f)) { onNavigate(NavSection.Songlist) }
     }
@@ -430,9 +470,40 @@ private fun PersonalTile(
 }
 
 @Composable
-private fun AccountPreviewDialog(onDismiss: () -> Unit) {
-  val closeFocus = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
-  androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
+private fun AccountConnectDialog(onDismiss: () -> Unit) {
+  val account = appContainer.neteaseAccount
+  val state by account.state.collectAsState()
+  val scope = androidx.compose.runtime.rememberCoroutineScope()
+  var qrKey by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+  var status by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("请用网易云音乐扫码") }
+  var busy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+  var error by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+
+  androidx.compose.runtime.LaunchedEffect(qrKey) {
+    val key = qrKey ?: return@LaunchedEffect
+    while (true) {
+      kotlinx.coroutines.delay(2000)
+      runCatching { account.pollQr(key) }
+        .onSuccess { code ->
+          when (code) {
+            802 -> status = "已扫码，请在手机上确认"
+            803 -> { qrKey = null; onDismiss(); return@LaunchedEffect }
+            800 -> { qrKey = null; error = "二维码已过期，请重新生成"; return@LaunchedEffect }
+          }
+        }
+        .onFailure { qrKey = null; error = it.message ?: "登录失败"; return@LaunchedEffect }
+    }
+  }
+
+  qrKey?.let { key ->
+    com.walkman.tv.ui.components.QrDialog(
+      url = account.qrUrl(key),
+      title = "网易云音乐扫码登录",
+      subtitle = status,
+      onDismiss = { qrKey = null },
+    )
+    return
+  }
   Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
     Column(
       modifier = Modifier.width(480.dp).clip(RoundedCornerShape(20.dp))
@@ -441,17 +512,40 @@ private fun AccountPreviewDialog(onDismiss: () -> Unit) {
     ) {
       Text("连接音乐账号", color = AppColors.TextPrimary, fontSize = 22.sp,
         fontWeight = FontWeight.Bold)
-      Text("账号登录将在下一阶段接入。完成后，这些入口会呈现你的专属内容。",
+      Text(if (state.connected) "当前连接：\${state.nickname}" else "扫码连接后可使用你的专属推荐与云端歌单",
         color = AppColors.TextSecondary, fontSize = 14.sp)
-      Spacer(Modifier.height(4.dp))
-      AccountPlatformRow("网易云音乐", AppColors.SourceWy)
-      AccountPlatformRow("QQ 音乐", AppColors.SourceTx)
-      AccountPlatformRow("酷狗音乐", AppColors.SourceKg)
-      Spacer(Modifier.height(4.dp))
-      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        TvPill(onClick = onDismiss, focusRequester = closeFocus, selected = true) {
-          Text("知道了", fontSize = 14.sp)
+      TvFocusable(
+        onClick = {
+          if (!busy) scope.launch {
+            busy = true
+            runCatching { account.newQr() }
+              .onSuccess { qrKey = it; status = "请用网易云音乐扫码" }
+              .onFailure { error = it.message ?: "无法生成二维码" }
+            busy = false
+          }
+        },
+        modifier = Modifier.fillMaxWidth().height(54.dp),
+        shape = RoundedCornerShape(12.dp),
+      ) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp),
+          verticalAlignment = Alignment.CenterVertically) {
+          Text("网易云音乐", color = AppColors.TextPrimary, fontSize = 16.sp,
+            modifier = Modifier.weight(1f))
+          Text(if (busy) "加载中…" else if (state.connected) "重新连接" else "扫码连接",
+            color = AppColors.BrandPrimary, fontSize = 13.sp)
         }
+      }
+      AccountPlatformRow("QQ 音乐（待接入）", AppColors.SourceTx)
+      AccountPlatformRow("酷狗音乐（待接入）", AppColors.SourceKg)
+      error?.let { Text(it, color = AppColors.BrandPrimary, fontSize = 13.sp) }
+      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        if (state.connected) {
+          TvPill(onClick = { account.disconnect(); onDismiss() }) {
+            Text("断开连接", fontSize = 14.sp)
+          }
+          Spacer(Modifier.width(12.dp))
+        }
+        TvPill(onClick = onDismiss) { Text("关闭", fontSize = 14.sp) }
       }
     }
   }
@@ -469,6 +563,40 @@ private fun AccountPlatformRow(name: String, tint: Color) {
     Text(name, modifier = Modifier.weight(1f), color = AppColors.TextPrimary,
       fontSize = 14.sp)
     Text("未连接", color = AppColors.TextMuted, fontSize = 12.sp)
+  }
+}
+
+@Composable
+private fun CloudPlaylistDialog(
+  lists: List<com.walkman.tv.data.model.SonglistInfo>,
+  onDismiss: () -> Unit,
+  onSelect: (com.walkman.tv.data.model.SonglistInfo) -> Unit,
+) {
+  Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Column(Modifier.width(560.dp).height(520.dp).clip(RoundedCornerShape(18.dp))
+      .background(AppColors.BgPanel).padding(20.dp)) {
+      Text("云端歌单", color = AppColors.TextPrimary, fontSize = 20.sp,
+        fontWeight = FontWeight.Bold)
+      Spacer(Modifier.height(12.dp))
+      if (lists.isEmpty()) Text("账号下暂无歌单", color = AppColors.TextSecondary)
+      androidx.compose.foundation.lazy.LazyColumn(
+        modifier = Modifier.weight(1f),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        items(lists) { info ->
+          TvFocusable(onClick = { onSelect(info) }, modifier = Modifier.fillMaxWidth().height(60.dp),
+            shape = RoundedCornerShape(12.dp)) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 15.dp, vertical = 8.dp)) {
+              Text(info.name, color = AppColors.TextPrimary, fontSize = 15.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+              Text("\${info.trackCount ?: 0} 首 · \${info.author}", color = AppColors.TextSecondary,
+                fontSize = 12.sp, maxLines = 1)
+            }
+          }
+        }
+      }
+      TvPill(onClick = onDismiss) { Text("返回", fontSize = 14.sp) }
+    }
   }
 }
 
