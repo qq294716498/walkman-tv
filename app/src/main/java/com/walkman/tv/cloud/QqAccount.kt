@@ -162,36 +162,102 @@ class QqAccount(
 
     suspend fun playlists(): List<SonglistInfo> {
         val s = current()
-        val created = cgi("music.musicasset.PlaylistBaseRead", "GetPlaylistByUin",
-            JSONObject().put("uin", s.id))
+        // QQ exposes these lists through both the musicu gateway and legacy profile APIs.
+        // Keep each source independent so one unavailable endpoint cannot hide all lists.
+        val created = runCatching {
+            cgi("music.musicasset.PlaylistBaseRead", "GetPlaylistByUin",
+                JSONObject().put("uin", s.id)).optJSONArray("v_playlist")
+        }
         val favourites = runCatching {
             cgi("music.musicasset.PlaylistFavRead", "CgiGetPlaylistFavInfo",
                 JSONObject().put("uin", s.encryptUin).put("offset", 0).put("size", 100))
-        }.getOrNull()
-        fun parse(array: JSONArray?): List<SonglistInfo> =
-            (0 until (array?.length() ?: 0)).mapNotNull { i ->
-                val item = array?.optJSONObject(i) ?: return@mapNotNull null
-                val id = item.optString("tid").ifBlank {
-                    item.optString("dissid").ifBlank { item.optString("id") }
-                }
-                if (id.isBlank()) return@mapNotNull null
-                SonglistInfo(id, SourceID.TX,
-                    item.optString("title").ifBlank { item.optString("dissname") },
-                    item.optString("nick").ifBlank { item.optString("nickname") },
-                    item.optString("picurl").ifBlank { item.optString("logo") }.ifBlank { null },
-                    item.optInt("songnum").takeIf { it > 0 })
-            }
-        return (parse(created.optJSONArray("v_playlist")) +
-            parse(favourites?.optJSONArray("v_list"))).distinctBy { it.id }
+                .optJSONArray("v_list")
+        }
+        val createdRows = parsePlaylists(created.getOrNull(), s.name)
+            .ifEmpty { parsePlaylists(runCatching {
+                profileGet("https://c.y.qq.com/rsc/fcgi-bin/fcg_user_created_diss",
+                    mapOf("hostUin" to "0", "hostuin" to s.id, "sin" to "0",
+                        "size" to "200", "g_tk" to "5381", "loginUin" to s.id,
+                        "format" to "json", "inCharset" to "utf8",
+                        "outCharset" to "utf-8", "notice" to "0",
+                        "platform" to "yqq.json", "needNewCode" to "0"), s)
+                    .optJSONArray("disslist")
+            }.getOrNull(), s.name) }
+        val favouriteRows = parsePlaylists(favourites.getOrNull(), s.name)
+            .ifEmpty { parsePlaylists(runCatching {
+                profileGet("https://c.y.qq.com/fav/fcgi-bin/fcg_get_profile_order_asset.fcg",
+                    mapOf("ct" to "20", "cid" to "205360956", "userid" to s.id,
+                        "reqtype" to "3", "sin" to "0", "ein" to "80"), s)
+                    .optJSONArray("cdlist")
+            }.getOrNull(), s.name) }
+        if (created.isFailure && favourites.isFailure &&
+            createdRows.isEmpty() && favouriteRows.isEmpty())
+            throw IllegalStateException("QQ 音乐歌单接口暂不可用，请重新登录后再试")
+        val liked = SonglistInfo("qq-liked:201", SourceID.TX, "我喜欢",
+            s.name, null, null)
+        return (listOf(liked) + createdRows + favouriteRows)
+            .filter { it.name.isNotBlank() }.distinctBy { it.id }
     }
+
+    private suspend fun profileGet(
+        url: String, params: Map<String, String>, session: Session,
+    ): JSONObject {
+        val raw = http.getText("$url?${query(params)}", mapOf(
+            "Cookie" to qqCookies(session),
+            "Referer" to "https://y.qq.com/portal/profile.html",
+            "Origin" to "https://y.qq.com",
+        )).trim()
+        val json = if (raw.startsWith("callback("))
+            raw.substringAfter("callback(").substringBeforeLast(")") else raw
+        val result = JSONObject(json)
+        if (result.optInt("code", 0) != 0)
+            throw IllegalStateException("QQ 音乐歌单接口返回 ${result.optInt("code")}")
+        return result.optJSONObject("data") ?: JSONObject()
+    }
+
+    private fun parsePlaylists(array: JSONArray?, owner: String): List<SonglistInfo> =
+        (0 until (array?.length() ?: 0)).mapNotNull { i ->
+            val item = array?.optJSONObject(i) ?: return@mapNotNull null
+            val rawId = item.optString("tid").ifBlank {
+                item.optString("dissid").ifBlank { item.optString("id") }
+            }
+            val id = if (item.optString("dirid") == "201") "qq-liked:201" else rawId
+            if (id.isBlank()) return@mapNotNull null
+            SonglistInfo(id, SourceID.TX,
+                item.optString("title").ifBlank {
+                    item.optString("dissname").ifBlank {
+                        item.optString("diss_name").ifBlank {
+                            item.optString("name").ifBlank { item.optString("dirName") }
+                        }
+                    }
+                },
+                item.optString("nick").ifBlank {
+                    item.optString("nickname").ifBlank {
+                        item.optString("hostname").ifBlank { owner }
+                    }
+                },
+                item.optString("picurl").ifBlank {
+                    item.optString("logo").ifBlank {
+                        item.optString("diss_cover").ifBlank { item.optString("cover") }
+                    }
+                }.ifBlank { null },
+                item.optInt("songnum").takeIf { it > 0 }
+                    ?: item.optInt("song_cnt").takeIf { it > 0 }
+                    ?: item.optInt("song_count").takeIf { it > 0 })
+        }
+
+    private fun qqCookies(s: Session): String =
+        "uin=${s.id}; qqmusic_uin=${s.id}; qm_keyst=${s.key}; qqmusic_key=${s.key}"
 
     suspend fun playlistTracks(id: String): List<Track> {
         val out = mutableListOf<Track>()
         for (page in 0..9) {
             val data = cgi("music.srfDissInfo.DissInfo", "CgiGetDiss",
-                JSONObject().put("disstid", id).put("dirid", 0).put("tag", 1)
-                    .put("song_begin", page * 100).put("song_num", 100)
-                    .put("userinfo", 1).put("orderlist", 1).put("onlysonglist", 0))
+                JSONObject().put("disstid", if (id == "qq-liked:201") 0 else id)
+                    .put("dirid", if (id == "qq-liked:201") 201 else 0)
+                    .put("tag", true).put("song_begin", page * 100)
+                    .put("song_num", 100).put("userinfo", true)
+                    .put("orderlist", true).put("onlysonglist", false))
             val batch = tracks(data.optJSONArray("songlist"))
             out.addAll(batch)
             if (batch.size < 100) break
@@ -219,28 +285,31 @@ class QqAccount(
     suspend fun heart(): List<Track> {
         val s = current()
         val data = cgi("music.srfDissInfo.DissInfo", "CgiGetDiss",
-            JSONObject().put("disstid", 0).put("dirid", 201).put("tag", 1)
-                .put("song_begin", 0).put("song_num", 100).put("userinfo", 1)
-                .put("orderlist", 1).put("enc_host_uin", s.encryptUin))
+            JSONObject().put("disstid", 0).put("dirid", 201).put("tag", true)
+                .put("song_begin", 0).put("song_num", 100).put("userinfo", true)
+                .put("orderlist", true).put("enc_host_uin", s.encryptUin))
         return tracks(data.optJSONArray("songlist"))
     }
 
     private suspend fun cgi(module: String, method: String, param: JSONObject,
         loginType: Int? = null): JSONObject {
         val s = if (loginType == null) current() else null
-        val comm = JSONObject().put("ct", 24).put("cv", 4747474)
+        val comm = JSONObject().put("ct", if (s == null) 24 else 19)
+            .put("cv", if (s == null) 4747474 else 0)
             .put("platform", "yqq.json").put("chid", "0")
             .put("uin", s?.id ?: "0")
-            .put("g_tk", if (s == null) 5381 else hash33(s.key, 5381))
-            .put("g_tk_new_20200303", if (s == null) 5381 else hash33(s.key, 5381))
+            .put("g_tk", 5381)
+            .put("g_tk_new_20200303", 5381)
             .put("format", "json").put("inCharset", "utf-8")
             .put("outCharset", "utf-8").put("notice", 0).put("needNewCode", 1)
         if (loginType != null) comm.put("tmeLoginType", loginType)
+        if (s != null) comm.put("authst", s.key)
         val payload = JSONObject().put("comm", comm)
             .put("req_0", JSONObject().put("module", module)
                 .put("method", method).put("param", param))
         val headers = if (s == null) emptyMap() else
-            mapOf("Cookie" to "uin=${s.id}; qm_keyst=${s.key}; qqmusic_key=${s.key}")
+            mapOf("Cookie" to qqCookies(s),
+                "Referer" to "https://y.qq.com/", "Origin" to "https://y.qq.com")
         val response = JSONObject(http.postJson(
             "https://u.y.qq.com/cgi-bin/musicu.fcg", payload.toString(), headers))
             .optJSONObject("req_0") ?: throw IllegalStateException("QQ 音乐响应无效")

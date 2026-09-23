@@ -28,6 +28,12 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
     private var cookie: String? = sessions.firstOrNull { it.id == activeId }?.cookie
     private val mutableState = MutableStateFlow(snapshot())
     val state = mutableState.asStateFlow()
+    private val qrCookies = mutableMapOf<String, String>()
+    private val qrHeaders = mapOf(
+        "Referer" to "https://music.163.com/",
+        "Origin" to "https://music.163.com",
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+    )
 
     private fun snapshot(): State = State(
         sessions.map { Account(it.id, it.nickname) }, activeId
@@ -42,10 +48,18 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
     }
 
     suspend fun newQr(): String {
-        val response = post("/weapi/login/qrcode/unikey", JSONObject().put("type", 1))
+        val result = http.postFormResponse(
+            "https://music.163.com/api/login/qrcode/unikey",
+            "type=3",
+            qrHeaders,
+        )
+        val response = JSONObject(result.text)
         val key = response.optJSONObject("data")?.optString("unikey")
             .orEmpty().ifBlank { response.optString("unikey") }
-        if (key.isBlank()) throw IllegalStateException("无法生成网易云登录二维码")
+        if (key.isBlank()) throw IllegalStateException(
+            response.optString("message").ifBlank { "无法生成网易云登录二维码" }
+        )
+        qrCookies[key] = mergeCookies(result.cookies.joinToString("; "))
         return key
     }
 
@@ -53,26 +67,57 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
 
     /** 801 waiting, 802 scanned, 803 connected, 800 expired. */
     suspend fun pollQr(key: String): Int {
-        val response = post("/weapi/login/qrcode/client/login",
-            JSONObject().put("key", key).put("type", 1))
+        val initialCookie = qrCookies[key].orEmpty()
+        val headers = if (initialCookie.isBlank()) qrHeaders
+            else qrHeaders + ("Cookie" to initialCookie)
+        val result = http.postFormResponse(
+            "https://music.163.com/api/login/qrcode/client/login",
+            "key=${urlEncode(key)}&type=3",
+            headers,
+        )
+        val response = JSONObject(result.text)
         val code = response.optInt("code")
+        val receivedCookie = mergeCookies(
+            initialCookie, result.cookies.joinToString("; "), response.optString("cookie")
+        )
         if (code == 803) {
-            val newCookie = response.optString("cookie")
-            if (newCookie.isBlank()) throw IllegalStateException("平台未返回登录凭据")
-            val profile = post("/weapi/nuser/account/get", JSONObject(), newCookie)
+            qrCookies.remove(key)
+            if (!receivedCookie.split(";").any { it.trim().startsWith("MUSIC_U=") })
+                throw IllegalStateException("扫码已确认，但平台未返回登录凭据")
+            val profile = post("/weapi/nuser/account/get", JSONObject(), receivedCookie)
                 .optJSONObject("profile")
             if (profile == null || profile.optLong("userId") <= 0L)
                 throw IllegalStateException("登录成功但未能读取账号信息")
             val id = profile.optLong("userId").toString()
             val name = profile.optString("nickname").ifBlank { "网易云用户" }
             sessions.removeAll { it.id == id }
-            sessions.add(Session(id, name, newCookie))
+            sessions.add(Session(id, name, receivedCookie))
             activeId = id
-            cookie = newCookie
+            cookie = receivedCookie
             persist()
             mutableState.value = snapshot()
+        } else if (code == 800) {
+            qrCookies.remove(key)
+        } else if (code == 801 || code == 802) {
+            qrCookies[key] = receivedCookie
+        } else {
+            throw IllegalStateException(
+                response.optString("message").ifBlank { "网易云扫码状态异常（$code）" }
+            )
         }
         return code
+    }
+
+    private fun mergeCookies(vararg values: String): String {
+        val merged = linkedMapOf<String, String>()
+        values.forEach { value ->
+            value.split(";").forEach { field ->
+                val key = field.substringBefore("=", "").trim()
+                val content = field.substringAfter("=", "").trim()
+                if (key.isNotBlank() && content.isNotBlank()) merged[key] = content
+            }
+        }
+        return merged.entries.joinToString("; ") { (key, value) -> "$key=$value" }
     }
 
     fun disconnect() {
