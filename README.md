@@ -2,9 +2,11 @@
 
 > 一款面向大屏、遥控器友好的 **原生 Android TV 音乐播放器**，使用 **Kotlin + Jetpack Compose for TV** 编写，**安装后需先在设置页面配置自定义音源** ，否则播放不了音乐。
 
+> 此副本在原项目基础上增加 LX 音源提示地址的自动下载与更新。它使用独立应用标识，可与原版同时安装；首次使用需在补丁版中导入一次音源。后续补丁版更新请从本仓库的 Releases 安装，应用内检查更新也指向本仓库。
+
 <p>
-  <a href="https://github.com/SincereXing/walkman-tv/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/SincereXing/walkman-tv?display_name=tag&label=release&color=3DDC84"></a>
-  <a href="https://github.com/SincereXing/walkman-tv/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/SincereXing/walkman-tv/total?label=downloads&color=3DDC84"></a>
+  <a href="https://github.com/qq294716498/walkman-tv/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/qq294716498/walkman-tv?display_name=tag&label=release&color=3DDC84"></a>
+  <a href="https://github.com/qq294716498/walkman-tv/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/qq294716498/walkman-tv/total?label=downloads&color=3DDC84"></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-Android%20TV-3DDC84">
   <img alt="language" src="https://img.shields.io/badge/Kotlin-Compose%20for%20TV-7F52FF">
   <img alt="minSdk" src="https://img.shields.io/badge/minSdk-23-blue">

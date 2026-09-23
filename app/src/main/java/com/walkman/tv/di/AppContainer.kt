@@ -213,6 +213,26 @@ class AppContainer(val appContext: Context) {
         }
     }
 
+    /** Bounded HTTPS download for automatic script replacement. Never logs the URL (it may contain a key). */
+    private suspend fun fetchScriptUpdate(url: String): String = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val request = okhttp3.Request.Builder().url(url).build()
+        httpClient.newCall(request).execute().use { response ->
+            if (response.request.url.scheme != "https" || !response.isSuccessful) {
+                throw IllegalStateException("无法下载更新脚本")
+            }
+            val stream = response.body?.byteStream() ?: throw IllegalStateException("更新脚本为空")
+            val out = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                if (out.size() + count > 1024 * 1024) throw IllegalStateException("更新脚本过大")
+                out.write(buffer, 0, count)
+            }
+            out.toString(Charsets.UTF_8.name())
+        }
+    }
+
     /** Load persisted data and wire settings → playback. Called once at startup. */
     fun bootstrap() {
         // Bring up the LAN HTTP server (best-effort; QR features just won't work if it fails).
@@ -230,6 +250,11 @@ class AppContainer(val appContext: Context) {
                 downloadStore.downloadTreeUri = s.customDownloadTreeUri?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() }
                 downloadCoordinator.setMaxConcurrent(s.maxConcurrentDownloads)
             }.launchIn(appScope)
+            sourceManager.onUpdateAlert = { script, log, updateUrl ->
+                appScope.launch {
+                    scriptStore.updateFromAlert(script, log, updateUrl, ::fetchScriptUpdate)
+                }
+            }
             scriptStore.loadAll()
             searchHistoryStore.load()
             coverCache.loadAll()

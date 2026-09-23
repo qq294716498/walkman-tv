@@ -76,6 +76,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val settings by appContainer.settingsStore.settings.collectAsState()
     val scripts by appContainer.scriptStore.scripts.collectAsState()
+    val scriptUpdateStatus by appContainer.scriptStore.updateStatus.collectAsState()
     var url by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
     var showQr by remember { mutableStateOf(false) }
@@ -398,6 +399,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 }
             }
             status?.let { Text(it, color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp)) }
+            scriptUpdateStatus?.let { Text(it, color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp)) }
 
             Spacer(Modifier.padding(top = 6.dp))
             if (scripts.isEmpty()) {

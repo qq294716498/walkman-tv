@@ -33,6 +33,7 @@ class JsScriptRuntime(
     val script: UserScript,
     private val preload: String,
     private val http: ScriptHttpClient,
+    private val onUpdateAlert: (String, String?) -> Unit = { _, _ -> },
 ) {
     private val executor = Executors.newSingleThreadExecutor { Thread(it, "lx-js-${script.id.take(8)}") }
     private val jsDispatcher = executor.asCoroutineDispatcher()
@@ -185,7 +186,9 @@ class JsScriptRuntime(
             "request" -> handleHttpRequest(rawData)
             "cancelRequest" -> rawData?.let { http.cancel(stripQuotes(it)) }
             "response" -> handleScriptResponse(rawData)
-            "showUpdateAlert" -> Log.i(TAG, "updateAlert: $rawData")
+            "showUpdateAlert" -> parseObj(rawData)?.let { alert ->
+                onUpdateAlert(alert.optString("log"), alert.optString("updateUrl").takeIf { it.isNotBlank() })
+            }
             else -> Log.d(TAG, "unknown script call: $action")
         }
     }

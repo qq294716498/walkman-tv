@@ -215,7 +215,7 @@ class UpdateManager(
 
     companion object {
         private const val TAG = "UpdateManager"
-        private const val OWNER = "SincereXing"
+        private const val OWNER = "qq294716498"
         private const val REPO = "walkman-tv"
         private const val UA = "walkman-tv-updater"
 

@@ -36,16 +36,27 @@ class SourceManager(
 
     @Volatile var fallbackEnabled: Boolean = true
 
+    /** Raised by an installed source script when it announces a newer script. */
+    var onUpdateAlert: ((script: UserScript, log: String, updateUrl: String?) -> Unit)? = null
+
     class SourceException(message: String) : Exception(message)
 
     suspend fun load(script: UserScript): Result<ScriptCapabilities> {
+        val runtime = JsScriptRuntime(script, preload, http) { log, url ->
+            onUpdateAlert?.invoke(script, log, url)
+        }
         return try {
-            val runtime = JsScriptRuntime(script, preload, http)
             val caps = runtime.load()
-            _loaded.value = _loaded.value.filter { it.script.id != script.id } +
-                LoadedScript(script, runtime, caps)
+            val previous = _loaded.value.firstOrNull { it.script.id == script.id }
+            val next = _loaded.value.toMutableList()
+            val index = next.indexOfFirst { it.script.id == script.id }
+            val loaded = LoadedScript(script, runtime, caps)
+            if (index >= 0) next[index] = loaded else next.add(loaded)
+            _loaded.value = next
+            previous?.runtime?.destroy()
             Result.success(caps)
         } catch (e: Exception) {
+            runtime.destroy()
             Log.e(TAG, "load failed: ${e.message}")
             Result.failure(e)
         }

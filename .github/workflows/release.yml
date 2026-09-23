@@ -57,7 +57,7 @@ jobs:
       - name: Build release APKs
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          ./gradlew testDebugUnitTest assembleRelease --no-daemon --stacktrace
 
       - name: Upload APKs to the GitHub Release
         uses: softprops/action-gh-release@v2
