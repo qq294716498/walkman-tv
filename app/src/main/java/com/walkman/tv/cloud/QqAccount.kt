@@ -119,16 +119,16 @@ class QqAccount(
             "daid" to "383", "j_later" to "0", "low_login_hour" to "0",
             "regmaster" to "0", "pt_login_type" to "3", "pt_aid" to "0",
             "pt_aaid" to "16", "pt_light" to "0", "pt_3rd_aid" to "100497308")
-        val pSkey = withContext(Dispatchers.IO) {
+        val oauthCookies = withContext(Dispatchers.IO) {
             noRedirect.newCall(Request.Builder()
                 .url("https://ssl.ptlogin2.graph.qq.com/check_sig?${query(check)}")
                 .header("Referer", "https://xui.ptlogin2.qq.com/").build())
                 .execute().use { response ->
-                    response.headers.values("Set-Cookie")
-                        .firstOrNull { it.startsWith("p_skey=") }
-                        ?.substringAfter("p_skey=")?.substringBefore(";").orEmpty()
+                    response.headers.values("Set-Cookie").map { it.substringBefore(";") }
                 }
         }
+        val pSkey = oauthCookies.firstOrNull { it.startsWith("p_skey=") }
+            ?.substringAfter("p_skey=").orEmpty()
         if (pSkey.isBlank()) throw IllegalStateException("QQ 授权凭据缺失")
         val form = FormBody.Builder()
             .add("response_type", "code").add("client_id", "100497308")
@@ -142,7 +142,7 @@ class QqAccount(
         val location = withContext(Dispatchers.IO) {
             noRedirect.newCall(Request.Builder()
                 .url("https://graph.qq.com/oauth2.0/authorize")
-                .header("Cookie", "p_skey=$pSkey; uin=$uin")
+                .header("Cookie", (oauthCookies + "uin=$uin").joinToString("; "))
                 .post(form).build()).execute().use { it.header("Location").orEmpty() }
         }
         val code = Regex("[?&]code=([^&]+)").find(location)?.groupValues?.get(1)
