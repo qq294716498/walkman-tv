@@ -1,0 +1,180 @@
+package com.walkman.tv.cloud
+
+import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import com.walkman.tv.data.model.Quality
+import com.walkman.tv.data.model.SonglistInfo
+import com.walkman.tv.data.model.SourceID
+import com.walkman.tv.data.model.Track
+import com.walkman.tv.source.catalog.CatalogHttp
+import com.walkman.tv.source.catalog.urlEncode
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.spec.GCMParameterSpec
+
+/** Account session stays on this device; platform cookies never enter the repository. */
+class NeteaseAccount(private val context: Context, private val http: CatalogHttp) {
+    data class State(val connected: Boolean = false, val nickname: String = "")
+    private val prefs = context.getSharedPreferences("cloud_account", Context.MODE_PRIVATE)
+    private val mutableState = MutableStateFlow(State())
+    val state = mutableState.asStateFlow()
+    private var cookie: String? = restore()
+
+    init { if (cookie != null) mutableState.value = State(true, prefs.getString("nickname", "") ?: "") }
+
+    suspend fun newQr(): String {
+        val response = post("/weapi/login/qrcode/unikey", JSONObject().put("type", 1))
+        val key = response.optJSONObject("data")?.optString("unikey").orEmpty()
+        if (key.isBlank()) throw IllegalStateException("无法生成网易云登录二维码")
+        return key
+    }
+
+    fun qrUrl(key: String): String = "https://music.163.com/login?codekey=\${urlEncode(key)}"
+
+    /** 801 waiting, 802 scanned, 803 connected, 800 expired. */
+    suspend fun pollQr(key: String): Int {
+        val response = post("/weapi/login/qrcode/client/login",
+            JSONObject().put("key", key).put("type", 1))
+        val code = response.optInt("code")
+        if (code == 803) {
+            val newCookie = response.optString("cookie")
+            if (newCookie.isBlank()) throw IllegalStateException("平台未返回登录凭据")
+            val profile = post("/weapi/nuser/account/get", JSONObject(), newCookie)
+                .optJSONObject("profile")
+            if (profile == null || profile.optLong("userId") <= 0L)
+                throw IllegalStateException("登录成功但未能读取账号信息")
+            cookie = newCookie
+            val name = profile.optString("nickname").ifBlank { "网易云用户" }
+            prefs.edit().putString("session", encrypt(newCookie))
+                .putString("nickname", name).apply()
+            mutableState.value = State(true, name)
+        }
+        return code
+    }
+
+    fun disconnect() {
+        cookie = null
+        prefs.edit().remove("session").remove("nickname").apply()
+        mutableState.value = State()
+    }
+
+    suspend fun daily(): List<Track> =
+        tracks(post("/weapi/v3/discovery/recommend/songs", JSONObject())
+            .optJSONObject("data")?.optJSONArray("dailySongs"))
+
+    suspend fun fm(): List<Track> =
+        tracks(post("/weapi/v1/radio/get", JSONObject()).optJSONArray("data"))
+
+    suspend fun playlists(): List<SonglistInfo> {
+        val account = post("/weapi/nuser/account/get", JSONObject())
+        val userId = account.optJSONObject("profile")?.optLong("userId") ?: 0L
+        if (userId <= 0L) throw IllegalStateException("账号已失效，请重新连接")
+        val response = post("/weapi/user/playlist",
+            JSONObject().put("uid", userId).put("limit", 100).put("offset", 0))
+        val array = response.optJSONArray("playlist") ?: return emptyList()
+        return (0 until array.length()).mapNotNull { i ->
+            val item = array.optJSONObject(i) ?: return@mapNotNull null
+            val id = item.optLong("id").takeIf { it > 0 }?.toString() ?: return@mapNotNull null
+            SonglistInfo(id, SourceID.WY, item.optString("name"),
+                item.optJSONObject("creator")?.optString("nickname").orEmpty(),
+                item.optString("coverImgUrl").ifBlank { null },
+                item.optInt("trackCount"))
+        }
+    }
+
+    suspend fun heart(): List<Track> {
+        val liked = playlists().firstOrNull() ?: return emptyList()
+        val response = post("/weapi/v6/playlist/detail",
+            JSONObject().put("id", liked.id).put("n", 100).put("s", 8))
+        val sourceTracks = response.optJSONObject("playlist")?.optJSONArray("tracks")
+        val seed = sourceTracks?.optJSONObject(0)?.optLong("id") ?: 0L
+        if (seed <= 0L) return emptyList()
+        val intelligence = post("/weapi/playmode/intelligence/list",
+            JSONObject().put("songId", seed).put("playlistId", liked.id)
+                .put("startMusicId", seed).put("count", 30))
+        val data = intelligence.optJSONArray("data") ?: return emptyList()
+        val songs = JSONArray()
+        for (i in 0 until data.length()) data.optJSONObject(i)?.optJSONObject("songInfo")?.let(songs::put)
+        return tracks(songs)
+    }
+
+    suspend fun guessLike(): List<Track> {
+        val response = post("/weapi/v1/discovery/recommend/resource", JSONObject())
+        val lists = response.optJSONArray("recommend") ?: return emptyList()
+        val firstId = lists.optJSONObject(0)?.optLong("id") ?: return emptyList()
+        val detail = post("/weapi/v6/playlist/detail",
+            JSONObject().put("id", firstId).put("n", 100).put("s", 8))
+        return tracks(detail.optJSONObject("playlist")?.optJSONArray("tracks"))
+    }
+
+    private suspend fun post(path: String, payload: JSONObject, overrideCookie: String? = null): JSONObject {
+        val session = overrideCookie ?: cookie
+        if (path !in listOf("/weapi/login/qrcode/unikey", "/weapi/login/qrcode/client/login")
+            && session.isNullOrBlank()) throw IllegalStateException("请先连接网易云账号")
+        val (params, key) = NeteaseWeApi.encode(payload.toString())
+        val headers = mutableMapOf("Referer" to "https://music.163.com/",
+            "Origin" to "https://music.163.com",
+            "User-Agent" to "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
+        if (!session.isNullOrBlank()) headers["Cookie"] = session
+        val body = "params=\${urlEncode(params)}&encSecKey=\${urlEncode(key)}"
+        val response = JSONObject(http.postForm("https://music.163.com$path", body, headers))
+        val code = response.optInt("code", 200)
+        if (code != 200 && code !in listOf(800, 801, 802, 803))
+            throw IllegalStateException(response.optString("message").ifBlank { "网易云请求失败（$code）" })
+        return response
+    }
+
+    private fun tracks(array: JSONArray?): List<Track> {
+        if (array == null) return emptyList()
+        return (0 until array.length()).mapNotNull { i ->
+            val song = array.optJSONObject(i) ?: return@mapNotNull null
+            val id = song.optLong("id").takeIf { it > 0 }?.toString() ?: return@mapNotNull null
+            val artists = song.optJSONArray("ar") ?: song.optJSONArray("artists")
+            val singer = (0 until (artists?.length() ?: 0))
+                .mapNotNull { artists?.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
+                .joinToString(" / ").ifBlank { "未知歌手" }
+            val album = song.optJSONObject("al") ?: song.optJSONObject("album")
+            Track(id = Track.makeID(SourceID.WY, id), name = song.optString("name", "未知歌曲"),
+                singer = singer, albumName = album?.optString("name")?.ifBlank { null },
+                albumId = album?.optLong("id")?.takeIf { it > 0 }?.toString(),
+                source = SourceID.WY, songmid = id,
+                duration = (song.optLong("dt").takeIf { it > 0 } ?: song.optLong("duration"))
+                    .takeIf { it > 0 }?.div(1000)?.toInt(),
+                picURL = album?.optString("picUrl")?.ifBlank { null },
+                qualities = listOf(Quality.K128, Quality.K320, Quality.FLAC))
+        }
+    }
+
+    private fun key(): javax.crypto.SecretKey {
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (store.getKey("walkman_cloud_session", null) as? javax.crypto.SecretKey)?.let { return it }
+        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+            init(KeyGenParameterSpec.Builder("walkman_cloud_session",
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
+        }.generateKey()
+    }
+
+    private fun encrypt(value: String): String {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
+    }
+
+    private fun restore(): String? = runCatching {
+        val raw = prefs.getString("session", null) ?: return@runCatching null
+        val bytes = Base64.decode(raw, Base64.DEFAULT)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+        String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)
+    }.getOrNull()
+}
