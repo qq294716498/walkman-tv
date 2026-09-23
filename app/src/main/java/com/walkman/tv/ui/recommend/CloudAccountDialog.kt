@@ -28,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +57,8 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
     val qqState by qq.state.collectAsState()
     val active by appContainer.cloudSelection.source.collectAsState()
     val scope = rememberCoroutineScope()
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
     var neteaseQr by remember { mutableStateOf<String?>(null) }
     var qqQr by remember { mutableStateOf<QqAccount.Qr?>(null) }
     var status by remember { mutableStateOf("请扫码登录") }
@@ -153,7 +157,7 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
                     }
                 }
             }
-            AccountRow("＋ 添加网易云账号", false) {
+            AccountRow("＋ 添加网易云账号", false, firstFocus) {
                 if (!busy) scope.launch {
                     busy = true
                     error = null
@@ -203,8 +207,11 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun AccountRow(title: String, selected: Boolean, onClick: () -> Unit) {
-    TvFocusable(onClick = onClick, modifier = Modifier.fillMaxWidth().height(42.dp),
+private fun AccountRow(title: String, selected: Boolean,
+    focusRequester: FocusRequester? = null, onClick: () -> Unit) {
+    TvFocusable(onClick = onClick,
+        modifier = Modifier.fillMaxWidth().height(42.dp)
+            .then(if (focusRequester == null) Modifier else Modifier.focusRequester(focusRequester)),
         shape = RoundedCornerShape(11.dp)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically) {
