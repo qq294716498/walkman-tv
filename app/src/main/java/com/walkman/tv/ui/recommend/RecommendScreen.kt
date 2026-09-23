@@ -226,6 +226,12 @@ private fun RecommendGrid(
   val activeSource by appContainer.cloudSelection.source.collectAsState()
   val connected = if (activeSource == com.walkman.tv.data.model.SourceID.TX) qq.connected else netease.connected
   val accountName = if (activeSource == com.walkman.tv.data.model.SourceID.TX) "QQ 音乐 · ${qq.name}" else "网易云 · ${netease.nickname}"
+  androidx.compose.runtime.LaunchedEffect(activeSource, netease.connected, qq.connected) {
+    if (activeSource == com.walkman.tv.data.model.SourceID.WY && !netease.connected && qq.connected)
+      appContainer.cloudSelection.select(com.walkman.tv.data.model.SourceID.TX)
+    if (activeSource == com.walkman.tv.data.model.SourceID.TX && !qq.connected && netease.connected)
+      appContainer.cloudSelection.select(com.walkman.tv.data.model.SourceID.WY)
+  }
   var accountError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
   var cloudLists by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<com.walkman.tv.data.model.SonglistInfo>?>(null) }
 
@@ -253,6 +259,10 @@ private fun RecommendGrid(
           }
         }
       }.onFailure { accountError = it.message ?: "加载失败，请稍后再试" }
+      if (kind != "云端歌单" && detail?.tracks?.isEmpty() == true) {
+        detail = null
+        accountError = "当前账号没有返回可播放歌曲，请稍后重试。"
+      }
       loadingDetail = false
     }
   }
