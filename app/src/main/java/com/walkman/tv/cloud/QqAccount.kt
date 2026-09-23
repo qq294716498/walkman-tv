@@ -136,7 +136,7 @@ class QqAccount(
             .add("scope", "get_user_info,get_app_friends")
             .add("state", "state").add("switch", "").add("from_ptlogin", "1")
             .add("src", "1").add("update_auth", "1").add("openapi", "1010_1030")
-            .add("g_tk", hash33(pSkey).toString())
+            .add("g_tk", hash33(pSkey, 5381).toString())
             .add("auth_time", System.currentTimeMillis().toString())
             .add("ui", UUID.randomUUID().toString()).build()
         val location = withContext(Dispatchers.IO) {
@@ -293,8 +293,8 @@ class QqAccount(
         }
     }.getOrDefault(emptyList())
 
-    private fun hash33(value: String): Int {
-        var result = 5381L
+    private fun hash33(value: String, seed: Long = 0L): Int {
+        var result = seed
         value.forEach { result += (result shl 5) + it.code }
         return (result and 0x7fffffff).toInt()
     }
