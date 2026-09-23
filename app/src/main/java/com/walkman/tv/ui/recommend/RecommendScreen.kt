@@ -221,22 +221,36 @@ private fun RecommendGrid(
   var detail by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<DetailView?>(null) }
   var loadingDetail by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   var showAccountPreview by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-  val account by appContainer.neteaseAccount.state.collectAsState()
+  val netease by appContainer.neteaseAccount.state.collectAsState()
+  val qq by appContainer.qqAccount.state.collectAsState()
+  val activeSource by appContainer.cloudSelection.source.collectAsState()
+  val connected = if (activeSource == com.walkman.tv.data.model.SourceID.TX) qq.connected else netease.connected
+  val accountName = if (activeSource == com.walkman.tv.data.model.SourceID.TX) "QQ 音乐 · ${qq.name}" else "网易云 · ${netease.nickname}"
   var accountError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
   var cloudLists by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<com.walkman.tv.data.model.SonglistInfo>?>(null) }
 
   fun openPersonal(kind: String) {
-    if (!account.connected) { showAccountPreview = true; return }
+    if (!connected) { showAccountPreview = true; return }
     if (loadingDetail) return
     scope.launch {
       loadingDetail = true
       runCatching {
-        when (kind) {
-          "每日推荐" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.daily())
-          "私人 FM" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.fm())
-          "心动模式" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.heart())
-          "猜你喜欢" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.guessLike())
-          "云端歌单" -> cloudLists = appContainer.neteaseAccount.playlists()
+        if (activeSource == com.walkman.tv.data.model.SourceID.TX) {
+          when (kind) {
+            "每日推荐" -> detail = DetailView(kind, "QQ 音乐 · 雷达推荐", appContainer.qqAccount.daily())
+            "私人 FM" -> detail = DetailView(kind, "QQ 音乐 · 电台推荐", appContainer.qqAccount.guessLike())
+            "心动模式" -> detail = DetailView(kind, "QQ 音乐 · 我喜欢", appContainer.qqAccount.heart())
+            "猜你喜欢" -> detail = DetailView(kind, "QQ 音乐", appContainer.qqAccount.guessLike())
+            "云端歌单" -> cloudLists = appContainer.qqAccount.playlists()
+          }
+        } else {
+          when (kind) {
+            "每日推荐" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.daily())
+            "私人 FM" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.fm())
+            "心动模式" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.heart())
+            "猜你喜欢" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.guessLike())
+            "云端歌单" -> cloudLists = appContainer.neteaseAccount.playlists()
+          }
         }
       }.onFailure { accountError = it.message ?: "加载失败，请稍后再试" }
       loadingDetail = false
@@ -268,7 +282,11 @@ private fun RecommendGrid(
     if (loadingDetail) return
     scope.launch {
       loadingDetail = true
-      runCatching { appContainer.neteaseAccount.playlistTracks(info.id) }
+      runCatching {
+        if (info.source == com.walkman.tv.data.model.SourceID.TX)
+          appContainer.qqAccount.playlistTracks(info.id)
+        else appContainer.neteaseAccount.playlistTracks(info.id)
+      }
         .onSuccess { tracks -> detail = DetailView(info.name, info.author, tracks) }
         .onFailure { accountError = it.message ?: "歌单加载失败" }
       loadingDetail = false
@@ -300,7 +318,7 @@ private fun RecommendGrid(
         PersonalizedIntro(
           onOpenAccount = { showAccountPreview = true },
           onSelectPersonal = ::openPersonal,
-          connectedName = account.nickname.takeIf { account.connected },
+          connectedName = accountName.takeIf { connected },
           onNavigate = onNavigate,
         )
       }
