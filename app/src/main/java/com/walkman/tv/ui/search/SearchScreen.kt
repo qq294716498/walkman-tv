@@ -120,6 +120,11 @@ fun SearchScreen(onOpenPlayer: () -> Unit, modifier: Modifier = Modifier) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.weight(1f)) { SearchInputBox(query) }
                 Spacer(Modifier.width(8.dp))
+                VoiceSearchButton { recognized ->
+                    query = recognized
+                    runSearch()
+                }
+                Spacer(Modifier.width(8.dp))
                 TvPill(
                     onClick = { showQr = true },
                     shape = androidx.compose.foundation.shape.CircleShape,
