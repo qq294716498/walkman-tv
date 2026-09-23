@@ -410,7 +410,7 @@ private fun PersonalizedIntro(
         Column(modifier = Modifier.weight(1f)) {
           Text(connectedName ?: "连接你的音乐", color = AppColors.TextPrimary, fontSize = 17.sp,
             fontWeight = FontWeight.Bold)
-          Text("网易云 · QQ音乐 · 酷狗", color = AppColors.TextSecondary, fontSize = 12.sp)
+          Text("网易云 · QQ音乐", color = AppColors.TextSecondary, fontSize = 12.sp)
         }
         Box(
           modifier = Modifier.clip(RoundedCornerShape(50))
@@ -523,8 +523,32 @@ private fun AccountConnectDialog(onDismiss: () -> Unit) {
     ) {
       Text("连接音乐账号", color = AppColors.TextPrimary, fontSize = 22.sp,
         fontWeight = FontWeight.Bold)
-      Text(if (state.connected) "当前连接：\${state.nickname}" else "扫码连接后可使用你的专属推荐与云端歌单",
+      Text(if (state.connected) "当前使用：${state.nickname}" else "添加账号后可使用专属推荐与云端歌单",
         color = AppColors.TextSecondary, fontSize = 14.sp)
+      Text("网易云音乐", color = AppColors.TextPrimary, fontSize = 15.sp,
+        fontWeight = FontWeight.Bold)
+      if (state.accounts.isNotEmpty()) {
+        androidx.compose.foundation.lazy.LazyColumn(
+          modifier = Modifier.fillMaxWidth().height(172.dp),
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          items(state.accounts) { saved ->
+            TvFocusable(
+              onClick = { account.select(saved.id) },
+              modifier = Modifier.fillMaxWidth().height(46.dp),
+              shape = RoundedCornerShape(12.dp),
+            ) {
+              Row(Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(saved.nickname, color = AppColors.TextPrimary,
+                  modifier = Modifier.weight(1f), fontSize = 14.sp)
+                Text(if (saved.id == state.activeId) "使用中" else "切换",
+                  color = AppColors.BrandPrimary, fontSize = 12.sp)
+              }
+            }
+          }
+        }
+      }
       TvFocusable(
         onClick = {
           if (!busy) scope.launch {
@@ -535,19 +559,18 @@ private fun AccountConnectDialog(onDismiss: () -> Unit) {
             busy = false
           }
         },
-        modifier = Modifier.fillMaxWidth().height(54.dp),
+        modifier = Modifier.fillMaxWidth().height(50.dp),
         shape = RoundedCornerShape(12.dp),
       ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 16.dp),
           verticalAlignment = Alignment.CenterVertically) {
-          Text("网易云音乐", color = AppColors.TextPrimary, fontSize = 16.sp,
+          Text("＋ 添加网易云账号", color = AppColors.TextPrimary, fontSize = 15.sp,
             modifier = Modifier.weight(1f))
-          Text(if (busy) "加载中…" else if (state.connected) "重新连接" else "扫码连接",
-            color = AppColors.BrandPrimary, fontSize = 13.sp)
+          Text(if (busy) "加载中…" else "扫码", color = AppColors.BrandPrimary,
+            fontSize = 13.sp)
         }
       }
-      AccountPlatformRow("QQ 音乐（待接入）", AppColors.SourceTx)
-      AccountPlatformRow("酷狗音乐（待接入）", AppColors.SourceKg)
+      AccountPlatformRow("QQ 音乐（接入中）", AppColors.SourceTx)
       error?.let { Text(it, color = AppColors.BrandPrimary, fontSize = 13.sp) }
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         if (state.connected) {
@@ -600,7 +623,7 @@ private fun CloudPlaylistDialog(
             Column(Modifier.fillMaxSize().padding(horizontal = 15.dp, vertical = 8.dp)) {
               Text(info.name, color = AppColors.TextPrimary, fontSize = 15.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-              Text("\${info.trackCount ?: 0} 首 · \${info.author}", color = AppColors.TextSecondary,
+              Text("${info.trackCount ?: 0} 首 · ${info.author}", color = AppColors.TextSecondary,
                 fontSize = 12.sp, maxLines = 1)
             }
           }
