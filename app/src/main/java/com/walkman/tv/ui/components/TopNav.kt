@@ -125,7 +125,7 @@ private fun NavItem(
     val shape = RoundedCornerShape(50)
     Surface(
         onClick = onClick,
-        modifier = if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier,
+        modifier = (if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier).tvTouch(onClick),
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
@@ -167,6 +167,7 @@ private fun NavItemIconOnly(
 ) {
     Surface(
         onClick = onClick,
+        modifier = Modifier.tvTouch(onClick),
         shape = ClickableSurfaceDefaults.shape(shape = CircleShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
@@ -213,7 +214,7 @@ private fun NowPlayingChip(
     // the heavy NavInactiveBg pill.
     androidx.tv.material3.Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.tvTouch(onClick),
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
