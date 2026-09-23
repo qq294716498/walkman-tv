@@ -221,22 +221,35 @@ private fun RecommendGrid(
   var detail by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<DetailView?>(null) }
   var loadingDetail by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   var showAccountPreview by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-  val account by appContainer.neteaseAccount.state.collectAsState()
+  val netease by appContainer.neteaseAccount.state.collectAsState()
+  val kugou by appContainer.kugouAccount.state.collectAsState()
+  val activeSource by appContainer.cloudSelection.source.collectAsState()
+  val connected = if (activeSource == com.walkman.tv.data.model.SourceID.KG) kugou.connected else netease.connected
+  val accountName = if (activeSource == com.walkman.tv.data.model.SourceID.KG) "酷狗 ${kugou.userId}" else netease.nickname
   var accountError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
   var cloudLists by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<com.walkman.tv.data.model.SonglistInfo>?>(null) }
 
   fun openPersonal(kind: String) {
-    if (!account.connected) { showAccountPreview = true; return }
+    if (!connected) { showAccountPreview = true; return }
     if (loadingDetail) return
     scope.launch {
       loadingDetail = true
       runCatching {
-        when (kind) {
-          "每日推荐" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.daily())
-          "私人 FM" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.fm())
-          "心动模式" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.heart())
-          "猜你喜欢" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.guessLike())
-          "云端歌单" -> cloudLists = appContainer.neteaseAccount.playlists()
+        if (activeSource == com.walkman.tv.data.model.SourceID.KG) {
+          when (kind) {
+            "每日推荐" -> detail = DetailView(kind, "酷狗音乐", appContainer.kugouAccount.daily())
+            "私人 FM" -> detail = DetailView(kind, "酷狗音乐", appContainer.kugouAccount.fm())
+            "云端歌单" -> cloudLists = appContainer.kugouAccount.playlists()
+            else -> accountError = "酷狗音乐暂未提供这个入口，可切换到网易云账号使用。"
+          }
+        } else {
+          when (kind) {
+            "每日推荐" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.daily())
+            "私人 FM" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.fm())
+            "心动模式" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.heart())
+            "猜你喜欢" -> detail = DetailView(kind, "网易云音乐", appContainer.neteaseAccount.guessLike())
+            "云端歌单" -> cloudLists = appContainer.neteaseAccount.playlists()
+          }
         }
       }.onFailure { accountError = it.message ?: "加载失败，请稍后再试" }
       loadingDetail = false
@@ -268,7 +281,11 @@ private fun RecommendGrid(
     if (loadingDetail) return
     scope.launch {
       loadingDetail = true
-      runCatching { appContainer.neteaseAccount.playlistTracks(info.id) }
+      runCatching {
+        if (info.source == com.walkman.tv.data.model.SourceID.KG)
+          appContainer.kugouAccount.playlistTracks(info.id)
+        else appContainer.neteaseAccount.playlistTracks(info.id)
+      }
         .onSuccess { tracks -> detail = DetailView(info.name, info.author, tracks) }
         .onFailure { accountError = it.message ?: "歌单加载失败" }
       loadingDetail = false
@@ -300,7 +317,7 @@ private fun RecommendGrid(
         PersonalizedIntro(
           onOpenAccount = { showAccountPreview = true },
           onSelectPersonal = ::openPersonal,
-          connectedName = account.nickname.takeIf { account.connected },
+          connectedName = accountName.takeIf { connected },
           onNavigate = onNavigate,
         )
       }
@@ -410,7 +427,7 @@ private fun PersonalizedIntro(
         Column(modifier = Modifier.weight(1f)) {
           Text(connectedName ?: "连接你的音乐", color = AppColors.TextPrimary, fontSize = 17.sp,
             fontWeight = FontWeight.Bold)
-          Text("网易云 · QQ音乐 · 酷狗", color = AppColors.TextSecondary, fontSize = 12.sp)
+          Text("网易云 · 酷狗音乐", color = AppColors.TextSecondary, fontSize = 12.sp)
         }
         Box(
           modifier = Modifier.clip(RoundedCornerShape(50))
@@ -482,34 +499,75 @@ private fun PersonalTile(
 
 @Composable
 private fun AccountConnectDialog(onDismiss: () -> Unit) {
-  val account = appContainer.neteaseAccount
-  val state by account.state.collectAsState()
+  val neteaseAccount = appContainer.neteaseAccount
+  val kugouAccount = appContainer.kugouAccount
+  val netease by neteaseAccount.state.collectAsState()
+  val kugou by kugouAccount.state.collectAsState()
+  val active by appContainer.cloudSelection.source.collectAsState()
   val scope = androidx.compose.runtime.rememberCoroutineScope()
   var qrKey by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-  var status by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("请用网易云音乐扫码") }
+  var qrSource by androidx.compose.runtime.remember {
+    androidx.compose.runtime.mutableStateOf(com.walkman.tv.data.model.SourceID.WY)
+  }
+  var status by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("请扫码登录") }
   var busy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   var error by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
 
-  androidx.compose.runtime.LaunchedEffect(qrKey) {
+  androidx.compose.runtime.LaunchedEffect(qrKey, qrSource) {
     val key = qrKey ?: return@LaunchedEffect
     while (true) {
       kotlinx.coroutines.delay(2000)
-      runCatching { account.pollQr(key) }
-        .onSuccess { code ->
-          when (code) {
-            802 -> status = "已扫码，请在手机上确认"
-            803 -> { qrKey = null; onDismiss(); return@LaunchedEffect }
-            800 -> { qrKey = null; error = "二维码已过期，请重新生成"; return@LaunchedEffect }
+      runCatching {
+        if (qrSource == com.walkman.tv.data.model.SourceID.KG) kugouAccount.pollQr(key)
+        else neteaseAccount.pollQr(key)
+      }.onSuccess { code ->
+        val success = if (qrSource == com.walkman.tv.data.model.SourceID.KG) code == 4 else code == 803
+        val expired = if (qrSource == com.walkman.tv.data.model.SourceID.KG) code == 0 else code == 800
+        when {
+          success -> {
+            appContainer.cloudSelection.select(qrSource)
+            qrKey = null
+            onDismiss()
+            return@LaunchedEffect
           }
+          expired -> {
+            qrKey = null
+            error = "二维码已过期，请重新生成"
+            return@LaunchedEffect
+          }
+          code == 2 || code == 802 -> status = "已扫码，请在手机上确认"
         }
-        .onFailure { qrKey = null; error = it.message ?: "登录失败"; return@LaunchedEffect }
+      }.onFailure {
+        qrKey = null
+        error = it.message ?: "登录失败"
+        return@LaunchedEffect
+      }
+    }
+  }
+
+  fun startQr(source: com.walkman.tv.data.model.SourceID) {
+    if (busy) return
+    scope.launch {
+      busy = true
+      error = null
+      runCatching {
+        if (source == com.walkman.tv.data.model.SourceID.KG) kugouAccount.newQr()
+        else neteaseAccount.newQr()
+      }.onSuccess {
+        qrSource = source
+        qrKey = it
+        status = "请用\${source.displayName}扫码"
+      }.onFailure { error = it.message ?: "无法生成二维码" }
+      busy = false
     }
   }
 
   qrKey?.let { key ->
+    val url = if (qrSource == com.walkman.tv.data.model.SourceID.KG)
+      kugouAccount.qrUrl(key) else neteaseAccount.qrUrl(key)
     com.walkman.tv.ui.components.QrDialog(
-      url = account.qrUrl(key),
-      title = "网易云音乐扫码登录",
+      url = url,
+      title = "\${qrSource.displayName}扫码登录",
       subtitle = status,
       onDismiss = { qrKey = null },
     )
@@ -523,37 +581,34 @@ private fun AccountConnectDialog(onDismiss: () -> Unit) {
     ) {
       Text("连接音乐账号", color = AppColors.TextPrimary, fontSize = 22.sp,
         fontWeight = FontWeight.Bold)
-      Text(if (state.connected) "当前连接：\${state.nickname}" else "扫码连接后可使用你的专属推荐与云端歌单",
+      Text("扫码连接后可使用你的专属推荐与云端歌单",
         color = AppColors.TextSecondary, fontSize = 14.sp)
-      TvFocusable(
+      AccountPlatformButton(
+        "网易云音乐", if (netease.connected) netease.nickname else "扫码连接",
+        active == com.walkman.tv.data.model.SourceID.WY && netease.connected,
         onClick = {
-          if (!busy) scope.launch {
-            busy = true
-            runCatching { account.newQr() }
-              .onSuccess { qrKey = it; status = "请用网易云音乐扫码" }
-              .onFailure { error = it.message ?: "无法生成二维码" }
-            busy = false
-          }
+          if (netease.connected) appContainer.cloudSelection.select(com.walkman.tv.data.model.SourceID.WY)
+          else startQr(com.walkman.tv.data.model.SourceID.WY)
         },
-        modifier = Modifier.fillMaxWidth().height(54.dp),
-        shape = RoundedCornerShape(12.dp),
-      ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp),
-          verticalAlignment = Alignment.CenterVertically) {
-          Text("网易云音乐", color = AppColors.TextPrimary, fontSize = 16.sp,
-            modifier = Modifier.weight(1f))
-          Text(if (busy) "加载中…" else if (state.connected) "重新连接" else "扫码连接",
-            color = AppColors.BrandPrimary, fontSize = 13.sp)
-        }
-      }
-      AccountPlatformRow("QQ 音乐（待接入）", AppColors.SourceTx)
-      AccountPlatformRow("酷狗音乐（待接入）", AppColors.SourceKg)
+      )
+      AccountPlatformButton(
+        "酷狗音乐", if (kugou.connected) "账号 \${kugou.userId}" else "扫码连接",
+        active == com.walkman.tv.data.model.SourceID.KG && kugou.connected,
+        onClick = {
+          if (kugou.connected) appContainer.cloudSelection.select(com.walkman.tv.data.model.SourceID.KG)
+          else startQr(com.walkman.tv.data.model.SourceID.KG)
+        },
+      )
+      Text("QQ 音乐账号接口尚未接通", color = AppColors.TextMuted, fontSize = 12.sp)
       error?.let { Text(it, color = AppColors.BrandPrimary, fontSize = 13.sp) }
+      if (busy) Text("正在生成二维码…", color = AppColors.TextSecondary, fontSize = 13.sp)
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        if (state.connected) {
-          TvPill(onClick = { account.disconnect(); onDismiss() }) {
-            Text("断开连接", fontSize = 14.sp)
-          }
+        if (netease.connected || kugou.connected) {
+          TvPill(onClick = {
+            if (active == com.walkman.tv.data.model.SourceID.KG) kugouAccount.disconnect()
+            else neteaseAccount.disconnect()
+            onDismiss()
+          }) { Text("断开当前账号", fontSize = 14.sp) }
           Spacer(Modifier.width(12.dp))
         }
         TvPill(onClick = onDismiss) { Text("关闭", fontSize = 14.sp) }
@@ -563,17 +618,21 @@ private fun AccountConnectDialog(onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun AccountPlatformRow(name: String, tint: Color) {
-  Row(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-      .background(AppColors.Card).padding(horizontal = 14.dp, vertical = 11.dp),
-    verticalAlignment = Alignment.CenterVertically,
+private fun AccountPlatformButton(
+  title: String, status: String, selected: Boolean, onClick: () -> Unit,
+) {
+  TvFocusable(
+    onClick = onClick,
+    modifier = Modifier.fillMaxWidth().height(54.dp),
+    shape = RoundedCornerShape(12.dp),
   ) {
-    Box(modifier = Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(tint))
-    Spacer(Modifier.width(11.dp))
-    Text(name, modifier = Modifier.weight(1f), color = AppColors.TextPrimary,
-      fontSize = 14.sp)
-    Text("未连接", color = AppColors.TextMuted, fontSize = 12.sp)
+    Row(Modifier.fillMaxSize().padding(horizontal = 16.dp),
+      verticalAlignment = Alignment.CenterVertically) {
+      Text(title, color = AppColors.TextPrimary, fontSize = 16.sp,
+        modifier = Modifier.weight(1f))
+      Text(if (selected) "使用中" else status, color = AppColors.BrandPrimary,
+        fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
   }
 }
 
