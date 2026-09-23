@@ -28,6 +28,16 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Today
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -195,7 +205,7 @@ private fun CircleControl(icon: androidx.compose.ui.graphics.vector.ImageVector,
   }
 }
 
-// ============== 右侧推荐网格（保持完全一致） =====================================================
+// ============== 右侧推荐内容 =====================================================
 
 private data class DetailView(val title: String, val subtitle: String?, val tracks: List<com.walkman.tv.data.model.Track>)
 
@@ -210,6 +220,7 @@ private fun RecommendGrid(
   val scope = androidx.compose.runtime.rememberCoroutineScope()
   var detail by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<DetailView?>(null) }
   var loadingDetail by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+  var showAccountPreview by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
   androidx.compose.runtime.LaunchedEffect(settings.homeSources) {
     appContainer.homeStore.loadIfNeeded(settings.homeSources)
@@ -253,6 +264,12 @@ private fun RecommendGrid(
       contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 32.dp),
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+      item {
+        PersonalizedIntro(
+          onOpenAccount = { showAccountPreview = true },
+          onNavigate = onNavigate,
+        )
+      }
       when {
         settings.homeSources.isEmpty() -> item { NoSourcesHint(onNavigate) }
         home.isLoading && home.heroes.isEmpty() -> item { LoadingPlaceholder() }
@@ -290,6 +307,10 @@ private fun RecommendGrid(
       }
     }
 
+    if (showAccountPreview) {
+      AccountPreviewDialog(onDismiss = { showAccountPreview = false })
+    }
+
     detail?.let { d ->
       com.walkman.tv.ui.components.TracksDetailOverlay(
         title = d.title,
@@ -299,6 +320,155 @@ private fun RecommendGrid(
         onOpenPlayer = onOpenPlayer,
       )
     }
+  }
+}
+
+/**
+ * Account and personal music entry points stay visible even while public recommendations load.
+ * The account service is a later phase, so every personal tile opens an honest connection
+ * preview instead of pretending to play personalized content.
+ */
+@Composable
+private fun PersonalizedIntro(
+  onOpenAccount: () -> Unit,
+  onNavigate: (NavSection) -> Unit,
+) {
+  Column(
+    modifier = Modifier.fillMaxWidth(),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    TvFocusable(
+      onClick = onOpenAccount,
+      modifier = Modifier.fillMaxWidth().height(68.dp),
+      shape = RoundedCornerShape(18.dp),
+      container = AppColors.BgPanel,
+    ) {
+      Row(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Box(
+          modifier = Modifier.size(38.dp).clip(RoundedCornerShape(12.dp))
+            .background(AppColors.BrandPrimary.copy(alpha = 0.17f)),
+          contentAlignment = Alignment.Center,
+        ) {
+          Icon(Icons.Filled.AccountCircle, contentDescription = null,
+            tint = AppColors.BrandPrimary, modifier = Modifier.size(24.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+          Text("连接你的音乐", color = AppColors.TextPrimary, fontSize = 17.sp,
+            fontWeight = FontWeight.Bold)
+          Text("网易云 · QQ音乐 · 酷狗", color = AppColors.TextSecondary, fontSize = 12.sp)
+        }
+        Box(
+          modifier = Modifier.clip(RoundedCornerShape(50))
+            .background(AppColors.Card).padding(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+          Text("尚未连接", color = AppColors.TextSecondary, fontSize = 12.sp)
+        }
+      }
+    }
+
+    Row(
+      modifier = Modifier.fillMaxWidth().padding(start = 4.dp),
+      verticalAlignment = Alignment.Bottom,
+    ) {
+      Text("你的音乐", color = AppColors.TextPrimary, fontSize = 21.sp,
+        fontWeight = FontWeight.Bold)
+      Spacer(Modifier.width(10.dp))
+      Text("连接账号后开启", color = AppColors.TextMuted, fontSize = 12.sp,
+        modifier = Modifier.padding(bottom = 3.dp))
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      PersonalTile("每日推荐", "每天一份新鲜歌单", Icons.Filled.Today,
+        Modifier.weight(1f), onOpenAccount)
+      PersonalTile("私人 FM", "随心听下一首", Icons.Filled.Radio,
+        Modifier.weight(1f), onOpenAccount)
+      PersonalTile("心动模式", "从喜欢出发", Icons.Filled.Favorite,
+        Modifier.weight(1f), onOpenAccount)
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      PersonalTile("猜你喜欢", "发现合口味的歌", Icons.Filled.AutoAwesome,
+        Modifier.weight(1f), onOpenAccount)
+      PersonalTile("云端歌单", "同步收藏与自建", Icons.Filled.CloudQueue,
+        Modifier.weight(1f), onOpenAccount)
+      PersonalTile("精选歌单", "发现更多好音乐", Icons.Filled.LibraryMusic,
+        Modifier.weight(1f)) { onNavigate(NavSection.Songlist) }
+    }
+  }
+}
+
+@Composable
+private fun PersonalTile(
+  title: String,
+  subtitle: String,
+  icon: ImageVector,
+  modifier: Modifier,
+  onClick: () -> Unit,
+) {
+  TvFocusable(
+    onClick = onClick,
+    modifier = modifier.height(104.dp),
+    shape = RoundedCornerShape(16.dp),
+  ) {
+    Column(
+      modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 11.dp),
+      verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+      Icon(icon, contentDescription = null, tint = AppColors.BrandPrimary,
+        modifier = Modifier.size(23.dp))
+      Column {
+        Text(title, color = AppColors.TextPrimary, fontSize = 16.sp,
+          fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(subtitle, color = AppColors.TextSecondary, fontSize = 11.sp,
+          maxLines = 1, overflow = TextOverflow.Ellipsis)
+      }
+    }
+  }
+}
+
+@Composable
+private fun AccountPreviewDialog(onDismiss: () -> Unit) {
+  val closeFocus = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
+  androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
+  Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Column(
+      modifier = Modifier.width(480.dp).clip(RoundedCornerShape(20.dp))
+        .background(AppColors.BgPanel).padding(24.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Text("连接音乐账号", color = AppColors.TextPrimary, fontSize = 22.sp,
+        fontWeight = FontWeight.Bold)
+      Text("账号登录将在下一阶段接入。完成后，这些入口会呈现你的专属内容。",
+        color = AppColors.TextSecondary, fontSize = 14.sp)
+      Spacer(Modifier.height(4.dp))
+      AccountPlatformRow("网易云音乐", AppColors.SourceWy)
+      AccountPlatformRow("QQ 音乐", AppColors.SourceTx)
+      AccountPlatformRow("酷狗音乐", AppColors.SourceKg)
+      Spacer(Modifier.height(4.dp))
+      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TvPill(onClick = onDismiss, focusRequester = closeFocus, selected = true) {
+          Text("知道了", fontSize = 14.sp)
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun AccountPlatformRow(name: String, tint: Color) {
+  Row(
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+      .background(AppColors.Card).padding(horizontal = 14.dp, vertical = 11.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Box(modifier = Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(tint))
+    Spacer(Modifier.width(11.dp))
+    Text(name, modifier = Modifier.weight(1f), color = AppColors.TextPrimary,
+      fontSize = 14.sp)
+    Text("未连接", color = AppColors.TextMuted, fontSize = 12.sp)
   }
 }
 
