@@ -193,40 +193,43 @@ class QqAccount(
 
     suspend fun playlists(accountId: String? = null): List<SonglistInfo> {
         val s = sessionFor(accountId)
-        // QQ exposes these lists through both the musicu gateway and legacy profile APIs.
-        // Keep each source independent so one unavailable endpoint cannot hide all lists.
-        val created = runCatching {
-            cgi("music.musicasset.PlaylistBaseRead", "GetPlaylistByUin",
-                JSONObject().put("uin", s.id), accountId = accountId)
-                .optJSONArray("v_playlist")
+        // Profile endpoints return the dissid used by playlist detail. The newer
+        // musicasset list can also include a tid/dirid for the same playlist.
+        val legacyCreated = runCatching {
+            profileGet("https://c.y.qq.com/rsc/fcgi-bin/fcg_user_created_diss",
+                mapOf("hostUin" to "0", "hostuin" to s.id, "sin" to "0",
+                    "size" to "200", "g_tk" to "5381", "loginUin" to s.id,
+                    "format" to "json", "inCharset" to "utf8",
+                    "outCharset" to "utf-8", "notice" to "0",
+                    "platform" to "yqq.json", "needNewCode" to "0"), s)
+                .optJSONArray("disslist")
         }
-        val favourites = runCatching {
-            cgi("music.musicasset.PlaylistFavRead", "CgiGetPlaylistFavInfo",
-                JSONObject().put("uin", s.encryptUin).put("offset", 0).put("size", 100),
-                accountId = accountId).optJSONArray("v_list")
+        val legacyFavourite = runCatching {
+            profileGet("https://c.y.qq.com/fav/fcgi-bin/fcg_get_profile_order_asset.fcg",
+                mapOf("ct" to "20", "cid" to "205360956", "userid" to s.id,
+                    "reqtype" to "3", "sin" to "0", "ein" to "80"), s)
+                .optJSONArray("cdlist")
         }
-        val createdRows = parsePlaylists(created.getOrNull(), s.name)
-            .ifEmpty { parsePlaylists(runCatching {
-                profileGet("https://c.y.qq.com/rsc/fcgi-bin/fcg_user_created_diss",
-                    mapOf("hostUin" to "0", "hostuin" to s.id, "sin" to "0",
-                        "size" to "200", "g_tk" to "5381", "loginUin" to s.id,
-                        "format" to "json", "inCharset" to "utf8",
-                        "outCharset" to "utf-8", "notice" to "0",
-                        "platform" to "yqq.json", "needNewCode" to "0"), s)
-                    .optJSONArray("disslist")
-            }.getOrNull(), s.name) }
-        val favouriteRows = parsePlaylists(favourites.getOrNull(), s.name)
-            .ifEmpty { parsePlaylists(runCatching {
-                profileGet("https://c.y.qq.com/fav/fcgi-bin/fcg_get_profile_order_asset.fcg",
-                    mapOf("ct" to "20", "cid" to "205360956", "userid" to s.id,
-                        "reqtype" to "3", "sin" to "0", "ein" to "80"), s)
-                    .optJSONArray("cdlist")
-            }.getOrNull(), s.name) }
-        if (created.isFailure && favourites.isFailure &&
-            createdRows.isEmpty() && favouriteRows.isEmpty())
+        val createdRows = parsePlaylists(legacyCreated.getOrNull(), s.name)
+            .ifEmpty {
+                parsePlaylists(runCatching {
+                    cgi("music.musicasset.PlaylistBaseRead", "GetPlaylistByUin",
+                        JSONObject().put("uin", s.id), accountId = accountId)
+                        .optJSONArray("v_playlist")
+                }.getOrNull(), s.name)
+            }
+        val favouriteRows = parsePlaylists(legacyFavourite.getOrNull(), s.name)
+            .ifEmpty {
+                parsePlaylists(runCatching {
+                    cgi("music.musicasset.PlaylistFavRead", "CgiGetPlaylistFavInfo",
+                        JSONObject().put("uin", s.encryptUin)
+                            .put("offset", 0).put("size", 100),
+                        accountId = accountId).optJSONArray("v_list")
+                }.getOrNull(), s.name)
+            }
+        if (createdRows.isEmpty() && favouriteRows.isEmpty() &&
+            legacyCreated.isFailure && legacyFavourite.isFailure)
             throw IllegalStateException("QQ 音乐歌单接口暂不可用，请重新登录后再试")
-        // Only show playlists confirmed by an endpoint. A synthetic “liked” row
-        // looks valid even when QQ rejected every playlist request.
         return (createdRows + favouriteRows)
             .filter { it.name.isNotBlank() }.distinctBy { it.id }
     }
@@ -250,8 +253,10 @@ class QqAccount(
     private fun parsePlaylists(array: JSONArray?, owner: String): List<SonglistInfo> =
         (0 until (array?.length() ?: 0)).mapNotNull { i ->
             val item = array?.optJSONObject(i) ?: return@mapNotNull null
-            val rawId = item.optString("tid").ifBlank {
-                item.optString("dissid").ifBlank { item.optString("id") }
+            val rawId = item.optString("dissid").ifBlank {
+                item.optString("diss_id").ifBlank {
+                    item.optString("tid").ifBlank { item.optString("id") }
+                }
             }
             val id = if (item.optString("dirid") == "201") "qq-liked:201" else rawId
             if (id.isBlank()) return@mapNotNull null
@@ -286,20 +291,50 @@ class QqAccount(
         "uin=${s.id}; qqmusic_uin=${s.id}; qm_keyst=${s.key}; qqmusic_key=${s.key}"
 
     suspend fun playlistTracks(id: String, accountId: String? = null): List<Track> {
+        val s = sessionFor(accountId)
+        val liked = id == "qq-liked:201"
         val out = mutableListOf<Track>()
         for (page in 0..9) {
-            val data = cgi("music.srfDissInfo.DissInfo", "CgiGetDiss",
-                JSONObject().put("disstid", if (id == "qq-liked:201") 0 else id)
-                    .put("dirid", if (id == "qq-liked:201") 201 else 0)
-                    .put("tag", true).put("song_begin", page * 100)
-                    .put("song_num", 100).put("userinfo", true)
-                    .put("orderlist", true).put("onlysonglist", false),
-                accountId = accountId)
-            val batch = tracks(data.optJSONArray("songlist"))
+            val param = JSONObject().put("disstid", if (liked) 0 else id)
+                .put("dirid", if (liked) 201 else 0)
+                .put("tag", true).put("song_begin", page * 100)
+                .put("song_num", 100).put("userinfo", true)
+                .put("orderlist", true).put("onlysonglist", false)
+            if (s.encryptUin.isNotBlank()) param.put("enc_host_uin", s.encryptUin)
+            val data = try {
+                cgi("music.srfDissInfo.DissInfo", "CgiGetDiss", param,
+                    accountId = accountId)
+            } catch (error: Exception) {
+                val retry = if (s.encryptUin.isNotBlank()) runCatching {
+                    param.remove("enc_host_uin")
+                    cgi("music.srfDissInfo.DissInfo", "CgiGetDiss", param,
+                        accountId = accountId)
+                }.getOrNull() else null
+                retry ?: if (!liked && page == 0) legacyPlaylistTracksData(id, s)
+                    else throw error
+            }
+            val raw = data.optJSONArray("songlist")
+            val batch = tracks(raw)
             out.addAll(batch)
-            if (batch.size < 100) break
+            if ((raw?.length() ?: 0) < 100 || data.optInt("hasmore", 1) == 0) break
         }
         return out
+    }
+
+    private suspend fun legacyPlaylistTracksData(id: String, session: Session): JSONObject {
+        val raw = http.getText(
+            "https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?" +
+                query(mapOf("disstid" to id, "type" to "1", "json" to "1",
+                    "utf8" to "1", "onlysong" to "0", "format" to "json")),
+            mapOf("Cookie" to qqCookies(session),
+                "Referer" to "https://y.qq.com/n/ryqq/playlist/$id"))
+        val response = JSONObject(raw)
+        val list = response.optJSONArray("cdlist")
+        if (response.optInt("code", 0) != 0 || list == null || list.length() == 0)
+            throw IllegalStateException("QQ 音乐歌单详情暂不可用")
+        return JSONObject().put("songlist",
+            list.optJSONObject(0)?.optJSONArray("songlist") ?: JSONArray())
+            .put("hasmore", 0)
     }
 
     suspend fun daily(): List<Track> {
@@ -367,12 +402,16 @@ class QqAccount(
                 .joinToString(" / ").ifBlank { "未知歌手" }
             val album = song.optJSONObject("album")
             Track(Track.makeID(SourceID.TX, mid),
-                song.optString("name").ifBlank { song.optString("title", "未知歌曲") },
-                singer, albumName = album?.optString("name")?.ifBlank { null },
+                song.optString("name").ifBlank {
+                    song.optString("songname").ifBlank { song.optString("title", "未知歌曲") }
+                },
+                singer, albumName = album?.optString("name")?.ifBlank { null }
+                    ?: song.optString("albumname").ifBlank { null },
                 albumId = album?.optString("id")?.ifBlank { null },
                 source = SourceID.TX, songmid = mid,
                 duration = song.optInt("interval").takeIf { it > 0 },
                 picURL = album?.optString("mid")?.takeIf { it.isNotBlank() }
+                    .orEmpty().ifBlank { song.optString("albummid") }.takeIf { it.isNotBlank() }
                     ?.let { "https://y.gtimg.cn/music/photo_new/T002R300x300M000$it.jpg" },
                 qualities = listOf(Quality.K128, Quality.K320),
                 extras = mapOf("songmid" to mid))
