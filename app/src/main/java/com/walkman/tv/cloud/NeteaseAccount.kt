@@ -199,7 +199,12 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
     suspend fun fm(): List<Track> =
         tracks(post("/weapi/v1/radio/get", JSONObject()).optJSONArray("data"))
 
-    suspend fun playlists(accountId: String? = null): List<SonglistInfo> {
+    data class AccountPlaylist(val info: SonglistInfo, val subscribed: Boolean)
+
+    suspend fun playlists(accountId: String? = null): List<SonglistInfo> =
+        playlistsWithKinds(accountId).map { it.info }
+
+    suspend fun playlistsWithKinds(accountId: String? = null): List<AccountPlaylist> {
         val session = sessionFor(accountId)
         val account = post("/weapi/nuser/account/get", JSONObject(), session.cookie)
         val userId = account.optJSONObject("profile")?.optLong("userId") ?: 0L
@@ -209,10 +214,13 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         return (0 until array.length()).mapNotNull { i ->
             val item = array.optJSONObject(i) ?: return@mapNotNull null
             val id = item.optLong("id").takeIf { it > 0 }?.toString() ?: return@mapNotNull null
-            SonglistInfo(id, SourceID.WY, item.optString("name"),
-                item.optJSONObject("creator")?.optString("nickname").orEmpty(),
-                item.optString("coverImgUrl").ifBlank { null },
-                item.optInt("trackCount"))
+            AccountPlaylist(
+                SonglistInfo(id, SourceID.WY, item.optString("name"),
+                    item.optJSONObject("creator")?.optString("nickname").orEmpty(),
+                    item.optString("coverImgUrl").ifBlank { null },
+                    item.optInt("trackCount")),
+                item.optBoolean("subscribed", false),
+            )
         }
     }
 

@@ -3,6 +3,7 @@ package com.walkman.tv.ui.recommend
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.draw.alpha
@@ -206,7 +207,13 @@ private fun CircleControl(icon: androidx.compose.ui.graphics.vector.ImageVector,
 
 private data class DetailView(val title: String, val subtitle: String?, val tracks: List<com.walkman.tv.data.model.Track>)
 private data class CloudAccountOption(val source: SourceID, val id: String, val name: String)
-private data class CloudPlaylistEntry(val account: CloudAccountOption, val info: com.walkman.tv.data.model.SonglistInfo)
+private data class CloudPlaylistEntry(
+  val account: CloudAccountOption,
+  val info: com.walkman.tv.data.model.SonglistInfo,
+  val isFavorite: Boolean = false,
+)
+private enum class RecommendTab { Public, Account }
+private enum class CloudFilter { All, NeteaseFavorites, Qq }
 
 @Composable
 private fun RecommendGrid(
@@ -230,9 +237,29 @@ private fun RecommendGrid(
   var cloudError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
   var cloudRefresh by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
   var showAllCloud by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-  val listState = rememberLazyListState()
+  var selectedTab by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(RecommendTab.Public) }
+  var cloudFilter by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(CloudFilter.All) }
+  var selectedAccount by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+  val publicListState = rememberLazyListState()
+  val accountListState = rememberLazyListState()
+  val scopedAccounts = accounts.filter {
+    when (cloudFilter) {
+      CloudFilter.All -> true
+      CloudFilter.NeteaseFavorites -> it.source == SourceID.WY
+      CloudFilter.Qq -> it.source == SourceID.TX
+    }
+  }
+  val filteredEntries = cloudEntries.filter { entry ->
+    (selectedAccount == null || selectedAccount == "${entry.account.source}:${entry.account.id}") &&
+      when (cloudFilter) {
+        CloudFilter.All -> true
+        CloudFilter.NeteaseFavorites -> entry.account.source == SourceID.WY && entry.isFavorite
+        CloudFilter.Qq -> entry.account.source == SourceID.TX
+      }
+  }
 
-  androidx.compose.runtime.LaunchedEffect(netease.accounts, qq.accounts, cloudRefresh) {
+  androidx.compose.runtime.LaunchedEffect(selectedTab, netease.accounts, qq.accounts, cloudRefresh) {
+    if (selectedTab != RecommendTab.Account) return@LaunchedEffect
     cloudLoading = true
     cloudError = null
     cloudEntries = emptyList()
@@ -240,12 +267,15 @@ private fun RecommendGrid(
     val loaded = mutableListOf<CloudPlaylistEntry>()
     val failures = mutableListOf<String>()
     for (account in accounts) {
-      val result = runCatching {
-        if (account.source == SourceID.TX) appContainer.qqAccount.playlists(account.id)
-        else appContainer.neteaseAccount.playlists(account.id)
+      if (account.source == SourceID.TX) {
+        runCatching { appContainer.qqAccount.playlists(account.id) }
+          .onSuccess { lists -> loaded += lists.map { CloudPlaylistEntry(account, it) } }
+          .onFailure { failures += "QQ音乐 · ${account.name}: ${it.message ?: "读取失败"}" }
+      } else {
+        runCatching { appContainer.neteaseAccount.playlistsWithKinds(account.id) }
+          .onSuccess { lists -> loaded += lists.map { CloudPlaylistEntry(account, it.info, it.subscribed) } }
+          .onFailure { failures += "网易云 · ${account.name}: ${it.message ?: "读取失败"}" }
       }
-      result.onSuccess { lists -> loaded += lists.map { CloudPlaylistEntry(account, it) } }
-        .onFailure { failures += "${if (account.source == SourceID.TX) "QQ音乐" else "网易云"} · ${account.name}: ${it.message ?: "读取失败"}" }
     }
     cloudEntries = loaded
     cloudError = failures.takeIf { it.isNotEmpty() }?.joinToString("\n")
@@ -258,7 +288,8 @@ private fun RecommendGrid(
   var recommendLoading by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   var recommendError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
   var recommendRefresh by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
-  androidx.compose.runtime.LaunchedEffect(netease.activeId, recommendRefresh) {
+  androidx.compose.runtime.LaunchedEffect(selectedTab, netease.activeId, recommendRefresh) {
+    if (selectedTab != RecommendTab.Account) return@LaunchedEffect
     recommended = emptyList()
     recommendError = null
     if (!netease.connected) return@LaunchedEffect
@@ -283,8 +314,9 @@ private fun RecommendGrid(
     }
   }
 
-  androidx.compose.runtime.LaunchedEffect(settings.homeSources) {
-    appContainer.homeStore.loadIfNeeded(settings.homeSources)
+  androidx.compose.runtime.LaunchedEffect(selectedTab, settings.homeSources) {
+    if (selectedTab == RecommendTab.Public)
+      appContainer.homeStore.loadIfNeeded(settings.homeSources)
   }
 
   val activeLabel = home.sources.joinToString(" · ") { it.displayName }
@@ -338,133 +370,217 @@ private fun RecommendGrid(
   }
 
   Box(modifier = modifier) {
-    androidx.compose.foundation.lazy.LazyColumn(
-      modifier = Modifier.fillMaxSize().focusGroup(),
-      state = listState,
-      contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 32.dp),
-      verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-      item {
-        PersonalizedIntro(
-          neteaseName = netease.nickname.takeIf { netease.connected },
-          accountCount = accounts.size,
-          onFm = { openNeteaseMusic("私人 FM") },
-          onHeart = { openNeteaseMusic("心动模式") },
-        )
+    Column(Modifier.fillMaxSize()) {
+      Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        TvPill(
+          onClick = { selectedTab = RecommendTab.Public },
+          selected = selectedTab == RecommendTab.Public,
+        ) { Text("公开推荐", fontSize = 15.sp) }
+        TvPill(
+          onClick = { selectedTab = RecommendTab.Account },
+          selected = selectedTab == RecommendTab.Account,
+        ) { Text("账号音乐", fontSize = 15.sp) }
       }
-      if (netease.connected) {
-        item {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("为你推荐的歌单", color = AppColors.TextPrimary, fontSize = 18.sp,
-              fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Text("网易云 · ${netease.nickname}", color = AppColors.TextMuted,
-              fontSize = 12.sp)
-            Spacer(Modifier.width(8.dp))
-            TvPill(onClick = { recommendRefresh += 1 }) { Text("刷新", fontSize = 12.sp) }
+
+      if (selectedTab == RecommendTab.Public) {
+        androidx.compose.foundation.lazy.LazyColumn(
+          modifier = Modifier.fillMaxSize().focusGroup(),
+          state = publicListState,
+          contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
+          verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          item {
+            Column {
+              Text("发现音乐", color = AppColors.TextPrimary, fontSize = 22.sp,
+                fontWeight = FontWeight.Bold)
+              Text("公开推荐 · 来自已启用的音乐平台",
+                color = AppColors.TextMuted, fontSize = 12.sp)
+            }
+          }
+          when {
+            settings.homeSources.isEmpty() -> item { NoSourcesHint(onNavigate) }
+            home.isLoading && home.heroes.isEmpty() -> item { LoadingPlaceholder() }
+            else -> {
+              if (home.heroes.isNotEmpty()) item {
+                HeroCarousel(home.heroes) { hero -> openSonglist(hero.songlist) }
+              }
+              if (home.recommendations.isNotEmpty()) {
+                item {
+                  SectionHeader("平台推荐歌单", activeLabel, trailing = "查看全部") {
+                    onNavigate(NavSection.Songlist)
+                  }
+                }
+                item { SonglistRow(home.recommendations) { info -> openSonglist(info) } }
+              }
+              if (home.boards.isNotEmpty()) {
+                item {
+                  SectionHeader("排行榜", activeLabel, trailing = "查看全部") {
+                    onNavigate(NavSection.Leaderboard)
+                  }
+                }
+                item { BoardRow(home.boards) { board -> openBoard(board) } }
+              }
+              item { StatsRow(onNavigate) }
+            }
           }
         }
-        if (recommended.isEmpty()) item {
-          Text(
-            when {
-              recommendLoading -> "正在加载推荐歌单…"
-              recommendError != null -> "推荐歌单暂时不可用：${recommendError}"
-              else -> "暂无推荐歌单"
-            },
-            color = AppColors.TextSecondary, fontSize = 13.sp,
-            modifier = Modifier.padding(horizontal = 8.dp),
-          )
-        }
-        else items(recommended.take(12).chunked(2), key = { row ->
-          "recommend:" + row.joinToString("|") { it.id }
-        }) { row ->
-          Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            row.forEach { info ->
-              CompactPlaylistCard(info, "网易云 · 为你推荐", Modifier.weight(1f)) {
-                netease.activeId?.let { id ->
-                  openCloudSonglist(CloudPlaylistEntry(
-                    CloudAccountOption(SourceID.WY, id, netease.nickname), info))
+      } else {
+        androidx.compose.foundation.lazy.LazyColumn(
+          modifier = Modifier.fillMaxSize().focusGroup(),
+          state = accountListState,
+          contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
+          verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          item {
+            PersonalizedIntro(
+              neteaseName = netease.nickname.takeIf { netease.connected },
+              accountCount = accounts.size,
+              onFm = { openNeteaseMusic("私人 FM") },
+              onHeart = { openNeteaseMusic("心动模式") },
+            )
+          }
+          if (netease.connected) {
+            item {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("为你推荐的歌单", color = AppColors.TextPrimary, fontSize = 18.sp,
+                  fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("网易云 · ${netease.nickname}", color = AppColors.TextMuted,
+                  fontSize = 12.sp)
+                Spacer(Modifier.width(8.dp))
+                TvPill(onClick = { recommendRefresh += 1 }) { Text("刷新", fontSize = 12.sp) }
+              }
+            }
+            if (recommended.isEmpty()) item {
+              Text(
+                when {
+                  recommendLoading -> "正在加载推荐歌单…"
+                  recommendError != null -> "推荐歌单暂时不可用：${recommendError}"
+                  else -> "暂无推荐歌单"
+                },
+                color = AppColors.TextSecondary, fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 8.dp),
+              )
+            }
+            else items(recommended.take(12).chunked(2), key = { row ->
+              "recommend:" + row.joinToString("|") { it.id }
+            }) { row ->
+              Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { info ->
+                  CompactPlaylistCard(info, "网易云 · 为你推荐", Modifier.weight(1f)) {
+                    netease.activeId?.let { id ->
+                      openCloudSonglist(CloudPlaylistEntry(
+                        CloudAccountOption(SourceID.WY, id, netease.nickname), info))
+                    }
+                  }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+              }
+            }
+          }
+          item {
+            CloudLibraryHeader(filteredEntries.size, cloudLoading,
+              onRefresh = { cloudRefresh += 1 })
+          }
+          item {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              listOf(
+                CloudFilter.All to "全部",
+                CloudFilter.NeteaseFavorites to "网易云收藏",
+                CloudFilter.Qq to "QQ 音乐",
+              ).forEach { (filter, label) ->
+                TvPill(
+                  onClick = {
+                    cloudFilter = filter
+                    selectedAccount = null
+                    showAllCloud = false
+                  },
+                  selected = cloudFilter == filter,
+                  contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = 14.dp, vertical = 7.dp),
+                ) { Text(label, fontSize = 12.sp) }
+              }
+            }
+          }
+          item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+              Text("账号", color = AppColors.TextMuted, fontSize = 12.sp)
+              LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
+                item(key = "all") {
+                  TvPill(
+                    onClick = { selectedAccount = null; showAllCloud = false },
+                    selected = selectedAccount == null,
+                  ) { Text("全部账号", fontSize = 12.sp) }
+                }
+                items(scopedAccounts, key = { "${it.source}:${it.id}" }) { account ->
+                  val key = "${account.source}:${account.id}"
+                  TvPill(
+                    onClick = { selectedAccount = key; showAllCloud = false },
+                    selected = selectedAccount == key,
+                  ) {
+                    Text(
+                      "${if (account.source == SourceID.TX) "QQ" else "网易云"} · ${account.name}",
+                      fontSize = 12.sp, maxLines = 1,
+                    )
+                  }
                 }
               }
             }
-            if (row.size == 1) Spacer(Modifier.weight(1f))
           }
-        }
-      }
-      item {
-        CloudLibraryHeader(cloudEntries.size, cloudLoading,
-          onRefresh = { cloudRefresh += 1 })
-      }
-      if (cloudEntries.isEmpty()) {
-        item {
-          Text(
-            when {
-              cloudLoading -> "正在读取账号歌单…"
-              accounts.isEmpty() -> "连接 QQ 音乐或网易云后，歌单会显示在这里"
-              cloudError != null -> "歌单读取失败，请点击刷新重试"
-              else -> "已连接账号下暂无歌单"
-            },
-            color = AppColors.TextSecondary, fontSize = 13.sp,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-          )
-        }
-      } else {
-        items((if (showAllCloud) cloudEntries else cloudEntries.take(12)).chunked(2), key = { row ->
-          row.joinToString("|") { "${it.account.source}:${it.account.id}:${it.info.id}" }
-        }) { row ->
-          Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            row.forEach { entry ->
-              CompactPlaylistCard(entry.info, "${if (entry.account.source == SourceID.TX) "QQ音乐" else "网易云"} · ${entry.account.name}",
-                Modifier.weight(1f)) { openCloudSonglist(entry) }
-            }
-            if (row.size == 1) Spacer(Modifier.weight(1f))
-          }
-        }
-      }
-      if (cloudEntries.size > 12) item {
-        TvPill(onClick = { showAllCloud = !showAllCloud }) {
-          Text(if (showAllCloud) "收起歌单" else "查看全部 ${cloudEntries.size} 个歌单",
-            fontSize = 12.sp)
-        }
-      }
-      if (cloudError != null) item {
-        Text(cloudError.orEmpty(), color = AppColors.TextSecondary,
-          fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp))
-      }
-      item {
-        Column(modifier = Modifier.padding(top = 16.dp)) {
-          Text("发现音乐", color = AppColors.TextPrimary, fontSize = 22.sp,
-            fontWeight = FontWeight.Bold)
-          Text("公开推荐 · 来自已启用的音乐平台", color = AppColors.TextMuted, fontSize = 12.sp)
-        }
-      }
-      when {
-        settings.homeSources.isEmpty() -> item { NoSourcesHint(onNavigate) }
-        home.isLoading && home.heroes.isEmpty() -> item { LoadingPlaceholder() }
-        else -> {
-          if (home.heroes.isNotEmpty()) item {
-            HeroCarousel(home.heroes) { hero -> openSonglist(hero.songlist) }
-          }
-          if (home.recommendations.isNotEmpty()) {
+          if (filteredEntries.isEmpty()) {
             item {
-              SectionHeader("平台推荐歌单", activeLabel, trailing = "查看全部") {
-                onNavigate(NavSection.Songlist)
+              Text(
+                when {
+                  cloudLoading -> "正在读取账号歌单…"
+                  accounts.isEmpty() -> "连接 QQ 音乐或网易云后，歌单会显示在这里"
+                  cloudError != null && cloudEntries.isEmpty() -> "歌单读取失败，请点击刷新重试"
+                  cloudFilter == CloudFilter.NeteaseFavorites -> "当前范围没有网易云收藏歌单"
+                  else -> "当前范围没有歌单"
+                },
+                color = AppColors.TextSecondary, fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+              )
+            }
+          } else {
+            items((if (showAllCloud) filteredEntries else filteredEntries.take(12)).chunked(2),
+              key = { row ->
+                row.joinToString("|") { "${it.account.source}:${it.account.id}:${it.info.id}" }
+              }) { row ->
+              Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { entry ->
+                  CompactPlaylistCard(
+                    entry.info,
+                    "${if (entry.account.source == SourceID.TX) "QQ音乐" else "网易云"} · ${entry.account.name}",
+                    Modifier.weight(1f),
+                  ) { openCloudSonglist(entry) }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
               }
             }
-            item { SonglistRow(home.recommendations) { info -> openSonglist(info) } }
           }
-          if (home.boards.isNotEmpty()) {
-            item {
-              SectionHeader("排行榜", activeLabel, trailing = "查看全部") {
-                onNavigate(NavSection.Leaderboard)
-              }
+          if (filteredEntries.size > 12) item {
+            TvPill(onClick = { showAllCloud = !showAllCloud }) {
+              Text(if (showAllCloud) "收起歌单" else "查看全部 ${filteredEntries.size} 个歌单",
+                fontSize = 12.sp)
             }
-            item { BoardRow(home.boards) { board -> openBoard(board) } }
           }
-          item { StatsRow(onNavigate) }
+          if (cloudError != null) item {
+            Text(cloudError.orEmpty(), color = AppColors.TextSecondary,
+              fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp))
+          }
+          item {
+            AccountManageEntry(accounts, onClick = { showAccountPreview = true })
+          }
         }
-      }
-      item {
-        AccountManageEntry(accounts, onClick = { showAccountPreview = true })
       }
     }
 
