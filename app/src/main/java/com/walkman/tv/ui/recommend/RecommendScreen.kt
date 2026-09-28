@@ -229,12 +229,14 @@ private fun RecommendGrid(
   var cloudLoading by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   var cloudError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
   var cloudRefresh by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+  var showAllCloud by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   val listState = rememberLazyListState()
 
   androidx.compose.runtime.LaunchedEffect(netease.accounts, qq.accounts, cloudRefresh) {
     cloudLoading = true
     cloudError = null
     cloudEntries = emptyList()
+    showAllCloud = false
     val loaded = mutableListOf<CloudPlaylistEntry>()
     val failures = mutableListOf<String>()
     for (account in accounts) {
@@ -406,7 +408,7 @@ private fun RecommendGrid(
           )
         }
       } else {
-        items(cloudEntries.chunked(2), key = { row ->
+        items((if (showAllCloud) cloudEntries else cloudEntries.take(12)).chunked(2), key = { row ->
           row.joinToString("|") { "${it.account.source}:${it.account.id}:${it.info.id}" }
         }) { row ->
           Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -416,6 +418,12 @@ private fun RecommendGrid(
             }
             if (row.size == 1) Spacer(Modifier.weight(1f))
           }
+        }
+      }
+      if (cloudEntries.size > 12) item {
+        TvPill(onClick = { showAllCloud = !showAllCloud }) {
+          Text(if (showAllCloud) "收起歌单" else "查看全部 ${cloudEntries.size} 个歌单",
+            fontSize = 12.sp)
         }
       }
       if (cloudError != null) item {
