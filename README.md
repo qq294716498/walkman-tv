@@ -75,7 +75,7 @@
 ./gradlew assembleRelease
 ```
 
-输出位于 `app/build/outputs/apk/`。Debug APK 使用仓库已有的调试签名以便测试。Release 工作流在推送 `v*` 标签后构建并上传四种 APK；如未配置仓库的 Release 签名密钥，现有工作流会回退到调试签名。需要正式分发签名时，请先配置 `RELEASE_KEYSTORE_BASE64`、`RELEASE_STORE_PASSWORD`、`RELEASE_KEY_ALIAS`、`RELEASE_KEY_PASSWORD`。
+输出位于 `app/build/outputs/apk/`。Debug APK 使用仓库已有的调试签名以便测试。Release 工作流在本版合入 main 时创建 v1.4.0 Release，也支持后续推送 `v*` 标签构建并上传四种 APK；如未配置仓库的 Release 签名密钥，现有工作流会回退到调试签名。需要正式分发签名时，请先配置 `RELEASE_KEYSTORE_BASE64`、`RELEASE_STORE_PASSWORD`、`RELEASE_KEY_ALIAS`、`RELEASE_KEY_PASSWORD`。
 
 主要代码位于 `app/src/main/java/com/walkman/tv/`：`cloud/` 处理 QQ/网易云账号，`source/` 处理平台目录与音源脚本，`playback/` 处理播放、下载和更新，`ui/` 为 TV 页面与焦点交互。自动构建见 [Debug workflow](.github/workflows/debug.yml) 与 [Release workflow](.github/workflows/release.yml)。
 
