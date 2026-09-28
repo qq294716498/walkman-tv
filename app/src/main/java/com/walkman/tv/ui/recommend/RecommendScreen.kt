@@ -236,6 +236,9 @@ private fun RecommendGrid(
   var cloudLoading by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   var cloudError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
   var cloudRefresh by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+  var loadedCloudKey by androidx.compose.runtime.remember {
+    androidx.compose.runtime.mutableStateOf<Pair<List<String>, Int>?>(null)
+  }
   var showAllCloud by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   var selectedTab by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(RecommendTab.Public) }
   var cloudFilter by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(CloudFilter.All) }
@@ -260,6 +263,8 @@ private fun RecommendGrid(
 
   androidx.compose.runtime.LaunchedEffect(selectedTab, netease.accounts, qq.accounts, cloudRefresh) {
     if (selectedTab != RecommendTab.Account) return@LaunchedEffect
+    val loadKey = accounts.map { "${it.source}:${it.id}:${it.name}" } to cloudRefresh
+    if (loadedCloudKey == loadKey) return@LaunchedEffect
     cloudLoading = true
     cloudError = null
     cloudEntries = emptyList()
@@ -280,6 +285,7 @@ private fun RecommendGrid(
     cloudEntries = loaded
     cloudError = failures.takeIf { it.isNotEmpty() }?.joinToString("\n")
     cloudLoading = false
+    loadedCloudKey = loadKey
   }
 
   var recommended by androidx.compose.runtime.remember {
@@ -288,8 +294,13 @@ private fun RecommendGrid(
   var recommendLoading by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
   var recommendError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
   var recommendRefresh by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+  var loadedRecommendKey by androidx.compose.runtime.remember {
+    androidx.compose.runtime.mutableStateOf<Pair<String?, Int>?>(null)
+  }
   androidx.compose.runtime.LaunchedEffect(selectedTab, netease.activeId, recommendRefresh) {
     if (selectedTab != RecommendTab.Account) return@LaunchedEffect
+    val loadKey = netease.activeId to recommendRefresh
+    if (loadedRecommendKey == loadKey) return@LaunchedEffect
     recommended = emptyList()
     recommendError = null
     if (!netease.connected) return@LaunchedEffect
@@ -298,6 +309,7 @@ private fun RecommendGrid(
       .onSuccess { recommended = it }
       .onFailure { recommendError = it.message ?: "推荐歌单暂时无法加载" }
     recommendLoading = false
+    loadedRecommendKey = loadKey
   }
 
   fun openNeteaseMusic(kind: String) {
