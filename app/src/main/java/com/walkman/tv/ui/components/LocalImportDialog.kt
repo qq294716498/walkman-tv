@@ -143,7 +143,7 @@ fun LocalImportDialog(onDismiss: () -> Unit) {
             if (permHint) {
                 Spacer(Modifier.size(6.dp))
                 Text(
-                    "需要存储访问权限：请在系统设置里为「随便听」开启文件访问（或允许存储权限），然后返回再点选择文件夹。",
+                    "需要存储访问权限：请在系统设置里为「好听-TV」开启文件访问（或允许存储权限），然后返回再点选择文件夹。",
                     color = AppColors.Warning,
                     fontSize = 12.sp,
                 )

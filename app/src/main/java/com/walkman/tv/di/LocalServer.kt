@@ -144,9 +144,9 @@ class LocalServer private constructor(
         private val INDEX_HTML = """
             <!doctype html><html><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>随便听 - 手机助手</title>$PAGE_CSS</head>
+            <title>好听-TV - 手机助手</title>$PAGE_CSS</head>
             <body>
-              <h2>随便听</h2>
+              <h2>好听-TV</h2>
               <p>选择要在电视上做的事：</p>
               <div class="card"><a href="/search"><h2>🔍 搜索歌曲</h2></a></div>
               <div class="card"><a href="/script"><h2>📜 导入自定义音源</h2></a></div>
@@ -158,7 +158,7 @@ class LocalServer private constructor(
         private val SEARCH_HTML = """
             <!doctype html><html><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>搜索 · 随便听</title>$PAGE_CSS
+            <title>搜索 · 好听-TV</title>$PAGE_CSS
             <style>
               .toast{position:fixed;left:50%;top:24px;transform:translateX(-50%);
                      background:#4ADE80;color:#0A0D14;font-weight:700;font-size:15px;
@@ -232,7 +232,7 @@ class LocalServer private constructor(
         private val PLAYLIST_NAME_HTML = """
             <!doctype html><html><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>歌单名 · 随便听</title>$PAGE_CSS</head>
+            <title>歌单名 · 好听-TV</title>$PAGE_CSS</head>
             <body>
               <h2>给歌单起个名字</h2>
               <p>用手机输入法（中英文都行），提交后名字会出现在电视的对话框里。</p>
@@ -246,7 +246,7 @@ class LocalServer private constructor(
         private val SONGLIST_URL_HTML = """
             <!doctype html><html><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>推送歌单 · 随便听</title>$PAGE_CSS</head>
+            <title>推送歌单 · 好听-TV</title>$PAGE_CSS</head>
             <body>
               <h2>推送歌单链接</h2>
               <p>从酷我 / 酷狗 / QQ 音乐 / 网易云分享一个歌单链接（或纯数字 ID），粘进来发送给电视，电视会自动识别并导入。</p>
@@ -260,7 +260,7 @@ class LocalServer private constructor(
         private val SCRIPT_HTML = """
             <!doctype html><html><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>自定义音源 · 随便听</title>$PAGE_CSS</head>
+            <title>自定义音源 · 好听-TV</title>$PAGE_CSS</head>
             <body>
               <h2>导入自定义音源</h2>
               <p>支持两种方式：粘贴脚本 URL，或直接上传 .js 文件。提交后电视会自动加载。</p>
@@ -278,7 +278,7 @@ class LocalServer private constructor(
         private fun donePage(message: String): String = """
             <!doctype html><html><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>已发送 · 随便听</title>$PAGE_CSS</head>
+            <title>已发送 · 好听-TV</title>$PAGE_CSS</head>
             <body>
               <div class="card" style="text-align:center;padding:32px 18px;">
                 <div class="ok">✓ ${escapeHtml(message)}</div>

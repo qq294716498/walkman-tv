@@ -12,6 +12,8 @@ const val MOBILE_UA =
 
 class CatalogException(message: String) : Exception(message)
 
+data class CatalogTextResponse(val text: String, val cookies: List<String>)
+
 /** Thin HTTP helper for the direct platform catalog/search/leaderboard/songlist APIs. */
 class CatalogHttp(private val client: OkHttpClient) {
 
@@ -21,6 +23,25 @@ class CatalogHttp(private val client: OkHttpClient) {
     suspend fun postForm(url: String, form: String, headers: Map<String, String> = emptyMap()): String {
         val body = form.toRequestBody("application/x-www-form-urlencoded".toMediaTypeOrNull())
         return exec(Request.Builder().url(url).applyHeaders(headers).post(body).build())
+    }
+
+    /** Preserve Set-Cookie for QR login; the login ticket is often sent in headers. */
+    suspend fun postFormResponse(
+        url: String,
+        form: String,
+        headers: Map<String, String> = emptyMap(),
+    ): CatalogTextResponse = withContext(Dispatchers.IO) {
+        val body = form.toRequestBody("application/x-www-form-urlencoded".toMediaTypeOrNull())
+        client.newCall(Request.Builder().url(url).applyHeaders(headers).post(body).build())
+            .execute().use { resp ->
+                if (!resp.isSuccessful) throw CatalogException("HTTP ${resp.code}")
+                CatalogTextResponse(
+                    resp.body?.string() ?: throw CatalogException("空响应"),
+                    resp.headers.values("Set-Cookie")
+                        .map { it.substringBefore(';').trim() }
+                        .filter { it.contains('=') },
+                )
+            }
     }
 
     suspend fun postJson(url: String, json: String, headers: Map<String, String> = emptyMap()): String {
