@@ -225,9 +225,9 @@ class QqAccount(
         if (created.isFailure && favourites.isFailure &&
             createdRows.isEmpty() && favouriteRows.isEmpty())
             throw IllegalStateException("QQ 音乐歌单接口暂不可用，请重新登录后再试")
-        val liked = SonglistInfo("qq-liked:201", SourceID.TX, "我喜欢",
-            s.name, null, null)
-        return (listOf(liked) + createdRows + favouriteRows)
+        // Only show playlists confirmed by an endpoint. A synthetic “liked” row
+        // looks valid even when QQ rejected every playlist request.
+        return (createdRows + favouriteRows)
             .filter { it.name.isNotBlank() }.distinctBy { it.id }
     }
 

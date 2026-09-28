@@ -275,7 +275,6 @@ private fun RecommendGrid(
       if (account.source == SourceID.TX) {
         runCatching { appContainer.qqAccount.playlists(account.id) }
           .onSuccess { lists -> loaded += lists.map { CloudPlaylistEntry(account, it) } }
-          .onFailure { failures += "QQ音乐 · ${account.name}: ${it.message ?: "读取失败"}" }
       } else {
         runCatching { appContainer.neteaseAccount.playlistsWithKinds(account.id) }
           .onSuccess { lists -> loaded += lists.map { CloudPlaylistEntry(account, it.info, it.subscribed) } }
@@ -585,7 +584,7 @@ private fun RecommendGrid(
                 fontSize = 12.sp)
             }
           }
-          if (cloudError != null) item {
+          if (cloudFilter != CloudFilter.Qq && cloudError != null) item {
             Text(cloudError.orEmpty(), color = AppColors.TextSecondary,
               fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp))
           }

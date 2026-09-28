@@ -1,220 +1,86 @@
-# 随便听 · walkman-tv
+# 好听-TV
 
-> 一款面向大屏、遥控器友好的 **原生 Android TV 音乐播放器**，使用 **Kotlin + Jetpack Compose for TV** 编写，**安装后需先在设置页面配置自定义音源** ，否则播放不了音乐。
+基于 [SincereXing/walkman-tv（原版 WALKMAN）](https://github.com/SincereXing/walkman-tv) 修改的 Android TV 音乐播放器。本仓库保留原版的 Kotlin、Jetpack Compose for TV 架构与遥控器交互，并加入多账号音乐内容、推荐页分层、语音搜索、应用内更新和电视品牌图标。感谢原作者和原项目贡献者；具体改动见[本版新增内容](#本版新增内容)。
 
-> 此副本在原项目基础上增加 LX 音源提示地址的自动下载与更新。它使用独立应用标识，可与原版同时安装；首次使用需在补丁版中导入一次音源。后续补丁版更新请从本仓库的 Releases 安装，应用内检查更新也指向本仓库。
+本项目采用 [Apache License 2.0](LICENSE)。它与原版使用不同的应用 ID（`com.walkman.tv.autosource`），可同时安装；两者的账号、歌单和设置数据不会自动互通。
 
-<p>
-  <a href="https://github.com/qq294716498/walkman-tv/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/qq294716498/walkman-tv?display_name=tag&label=release&color=3DDC84"></a>
-  <a href="https://github.com/qq294716498/walkman-tv/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/qq294716498/walkman-tv/total?label=downloads&color=3DDC84"></a>
-  <img alt="platform" src="https://img.shields.io/badge/platform-Android%20TV-3DDC84">
-  <img alt="language" src="https://img.shields.io/badge/Kotlin-Compose%20for%20TV-7F52FF">
-  <img alt="minSdk" src="https://img.shields.io/badge/minSdk-23-blue">
-  <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-green">
-  <img alt="built with" src="https://img.shields.io/badge/built%20with-Claude%20Code-d97757">
-</p>
+> **使用前先看：**部分在线歌曲需要在「设置 → 自定义音源」导入兼容 lx-music v4 协议的脚本才能解析播放地址。应用不提供音源脚本或版权音频；各平台接口、登录和语音识别的可用性取决于平台与电视系统。
 
-主打「打开就能听、用方向键就能玩」：暗色界面、大封面、逐行滚动歌词、旋转黑胶，所有交互都为 D-pad（方向键 + OK + 返回）设计，适配客厅观看距离，播放器能够动态适配电视机屏幕尺寸。保留 **洛雪音乐（lx-music）v4 自定义源的 JS 解析协议**，在此基础上**扩展了更多音质档位**。
+## 下载与安装
 
-> 🤖 本项目的**全部代码均由 [Claude Code](https://claude.com/claude-code) 生成**（含架构、UI、播放/下载/导入逻辑与本文档）。
+在 [Releases](https://github.com/qq294716498/walkman-tv/releases/latest) 下载适合电视的 APK：
 
----
+| 文件名中的标记 | 适用设备 |
+| --- | --- |
+| `universal` | 不确定处理器类型时选择；包含全部 ABI |
+| `arm64-v8a` | 大多数 64 位 ARM 电视或盒子 |
+| `armeabi-v7a` | 32 位 ARM 设备 |
+| `x86_64` | x86 设备或 Android TV 模拟器 |
 
-## 📺 界面预览
+正式发布文件名形如 `好听-TV-1.4.0-universal-release.apk`。系统最低要求 Android 6.0（API 23）。可通过电视文件管理器从 U 盘安装，或使用 `adb install`。升级时保留相同应用 ID 和签名即可覆盖安装；如果电视提示签名不一致，先备份本版数据，再决定是否卸载旧包。
 
-![全屏播放器：旋转黑胶 + 逐行歌词 + 实时波形 + Master / FLAC 24bit/192kHz 音质标识](docs/screenshots/player-live.jpg)
+应用内「设置 → 检查更新」读取**本仓库**的最新 GitHub Release，并选择与设备 ABI 匹配的 APK。下载和安装需要电视能够访问 GitHub、授予安装未知应用权限。测试构建可在 [GitHub Actions](https://github.com/qq294716498/walkman-tv/actions) 下载，发布版以 Releases 为准。
 
-| 推荐首页：常驻正在播放面板 + 推荐卡片 | 搜索：多平台聚合 + MV/SQ/Hi-Res 角标 |
-|:--:|:--:|
-| ![推荐首页](docs/screenshots/home.jpg) | ![搜索页](docs/screenshots/search.jpg) |
+## 本版新增内容
 
-| 扫码搜索：电视出码，手机/电脑打开即输 | 手机端输入页（局域网直连，无需装 App） |
-|:--:|:--:|
-| ![扫码搜索弹窗](docs/screenshots/qr-search.jpg) | <img src="docs/screenshots/phone-input.jpg" alt="手机扫码输入页" width="280"> |
+- **推荐页分层：**「公开推荐」保留原版的推荐歌单、排行榜、左侧正在播放区，以及酷我、酷狗、QQ 音乐、网易云等已启用平台；「账号音乐」集中显示登录后的内容。顶部主导航结构保持不变。
+- **账号歌单管理：**支持多个网易云与 QQ 音乐账号；按「全部 / 网易云收藏 / QQ 音乐」和具体账号筛选。每页默认展示 12 个紧凑歌单卡片，需要时展开全部；账号添加、切换和移除入口位于账号页底部。网易云收藏依据接口的收藏标记筛选。QQ 接口未返回的歌单不显示。
+- **网易云个性化：**账号连接后可使用私人 FM、心动模式及为你推荐的歌单；支持扫码或中国大陆 +86 手机号验证码登录。若平台要求更换登录方式，以平台实际提示为准。
+- **QQ 音乐账号：**支持扫码登录和账号歌单。QQ 登录不会替换原版的公开 QQ 搜索、排行榜和歌单功能。
+- **搜索语音输入：**在原有遥控器键盘与手机扫码输入之外加入语音搜索。优先请求电视内置麦克风（支持的 Android 版本上），识别后沿用原有多平台搜索；电视必须向第三方应用提供系统语音识别服务，只有内置语音助手并不保证可用。
+- **品牌与更新：**应用内名称统一为「好听-TV」，新增带透明背景的 16:9 电视启动横幅；保留方形应用图标。应用内更新指向本仓库，并支持从本仓库自动获取 LX 音源提示地址的更新。
 
----
+[查看电视横版图标](app/src/main/res/drawable-nodpi/haoting_tv_banner.png)。
 
-## 📥 下载安装
+## 原版功能保留
 
-前往 **[Releases](../../releases/latest)** 下载最新 APK，用 U 盘 / `adb install` 装到 Android TV 即可。
+| 区域 | 功能 |
+| --- | --- |
+| 推荐与平台浏览 | 公开推荐、排行榜、歌单广场；可在设置中选择发现页平台 |
+| 搜索 | 酷我、酷狗、QQ 音乐、网易云等平台聚合搜索与筛选；遥控器键盘、手机扫码、语音输入 |
+| 播放器 | Media3 后台播放、全屏封面、逐行歌词、波形与播放控制、MV |
+| 我的列表 | 收藏、播放历史、自建歌单、本地持久化 |
+| 歌单导入 | 从网易云、QQ 音乐、酷狗、酷我分享链接导入在线歌单 |
+| 下载与本地音乐 | 单曲和整单下载、音质选择、下载目录、音频标签；扫描并导入本地音乐 |
+| 自定义音源 | 通过 URL、文件、脚本内容或手机扫码导入 lx-music v4 兼容 JS 脚本 |
 
-- **`walkman-tv-x.y.z-universal-release.apk`** —— 通用包，不确定机型就下它（体积稍大，任意 ABI 都能装）。
-- **`walkman-tv-x.y.z-arm64-v8a-release.apk`** —— 现代电视/盒子（2018 年后，64 位 ARM），体积更小。
-- **`walkman-tv-x.y.z-armeabi-v7a-release.apk`** —— 老的 32 位 ARM 机型。
-- **`walkman-tv-x.y.z-x86_64-release.apk`** —— x86 盒子 / Android TV 模拟器。
+**酷狗只是不参与新增的账号登录体系；原版酷狗公开功能仍保留。** 平台目录和播放接口可能随平台调整而变化；账号歌单、封面和在线歌曲以实际可用结果为准。
 
-> 安装：`adb connect <电视IP>` 后 `adb install walkman-tv-x.y.z-universal-release.apk`；或把 APK 拷到 U 盘，用电视上的「文件管理器 / 安装包安装器」打开。首次安装需在系统设置里允许「未知来源 / 安装未知应用」。系统要求 Android 6.0+（minSdk 23）。
+### 音质与音源
 
----
+应用按所选目标音质尝试获取可用版本，并在无法获得目标音质时逐级降级。支持 `master`、`atmos_plus`、`atmos`、`hires`、`flac24bit`、`flac`、`320k`、`128k` 等档位；实际可播放音质取决于平台、账号权限和所用自定义脚本。
 
-## ✨ 功能特性
+自定义源兼容 [洛雪音乐 lx-music](https://github.com/lyswhut/lx-music-mobile) v4 用户脚本协议。脚本主要用于播放地址与歌词解析；搜索、排行榜和歌单目录由平台接口提供。请仅使用有权访问的内容和可信脚本。
 
-| 分区 | 说明 |
-|---|---|
-| **推荐（首页）** | 左侧常驻「正在播放」面板（大封面 / 歌名歌手 / 当前歌词行 / 进度），右侧推荐卡片网格 + 已播·收藏统计 |
-| **搜索** | 多平台聚合搜歌，可按单一音源筛选；支持**手机扫码输入**关键词（局域网推送，省去电视端打字） |
-| **排行榜** | 各平台官方榜单浏览 → 榜内歌曲 → 播放 |
-| **歌单广场** | 按标签 / 排序浏览歌单 → 歌单详情 → 整单播放 |
-| **我的列表** | 我的收藏、**播放历史**（自动记录、去重置顶）、自建歌单；本地 JSON 持久化 |
-| **下载** | 单曲 / **整单批量下载**（我的列表里「下载全部」，并发可配置、相同音质自动跳过、可选「按新音质重下」升级已下载）、多音质、文件夹分组、进度跟踪、断点状态恢复，并写入 **ID3v2.4 / FLAC** 元数据（标题/歌手/专辑/曲号/年份/封面/歌词）；**可在设置中选择下载目录**（内部存储 / SD 卡 / U 盘，或用系统文件夹选择器 SAF 指定任意可浏览文件夹） |
-| **本地导入** | 通过 SAF 选择文件夹递归扫描导入本地音乐（mp3 / flac / m4a / wav…），自动读取内嵌标签 |
-| **在线歌单导入** | 粘贴或扫码推送 **网易云 / QQ 音乐 / 酷狗 / 酷我** 的歌单分享链接（含 iPhone 微信分享的新格式），实时识别并一键**全量导入**为本地歌单——几百上千首也完整拉取、不截断 |
-| **全屏播放器** | 模糊封面背景 + 旋转黑胶 + 逐行歌词 + 波形进度 + 传输控件 + 收藏；歌词字号可调（标准 / 大 / 最大） |
-| **MV** | 取各平台 MV 地址，用 ExoPlayer 在视频层播放 |
-| **设置 / 自定义源管理** | 音质偏好、发现页音源开关、内置直连兜底、歌词翻译、歌词大小，以及通过 **URL / 文件 / 扫码** 导入 lx-music v4 脚本 |
+## 基本操作
 
-> 文字输入统一支持「手机扫码 → 局域网推送」：电视端展示二维码，手机访问内置轻量 HTTP 服务页面输入中文/链接后回传，避免在电视上用遥控器逐字敲。
+1. 安装并打开应用，使用遥控器方向键移动焦点，按 OK 选择，按返回键关闭当前页面或弹层。支持的页面也可点击操作。
+2. 若歌曲无法解析，在「设置 → 自定义音源」导入自己的兼容脚本，按需调整播放音质和发现页平台。
+3. 在「推荐 → 账号音乐」底部进入账号管理，添加 QQ 音乐或网易云账号。返回账号音乐页后选择平台、账号与歌单。
+4. 搜索时可使用电视键盘、语音按钮或手机扫码。扫码输入要求手机与电视处于可互访的局域网。
 
----
+账号登录凭据保存在电视应用的本地数据中，不写入 Git 仓库；移除账号后将从应用中删除相应会话。请勿在公开 Issue 或截图中粘贴 Cookie、验证码或完整二维码。
 
-## 🎵 支持的音乐平台
+## 技术与构建
 
-| 平台 | 代码 | 搜索 | 排行榜 | 歌单 | 在线歌单导入 |
-|---|---|:--:|:--:|:--:|:--:|
-| 酷我音乐 | `kw` | ✅ | ✅ | ✅ | ✅ |
-| 酷狗音乐 | `kg` | ✅ | ✅ | ✅ | ✅ |
-| QQ 音乐 | `tx` | ✅ | ✅ | ✅ | ✅ |
-| 网易云音乐 | `wy` | ✅ | ✅ | ✅ | ✅ |
-| 本地文件 | `local` | — | — | — | （本地导入） |
+- Kotlin、Jetpack Compose for TV、Media3 ExoPlayer / Session
+- OkHttp、Coroutines / StateFlow、Coil
+- QuickJS 运行自定义源脚本；NanoHTTPD 与 ZXing 提供手机扫码输入
+- Android SDK（`compileSdk 36`、`minSdk 23`、`targetSdk 34`）及 JDK 17
 
-> 目录数据（搜索 / 排行榜 / 歌单）走各平台直连 API；播放地址解析优先走自定义源脚本，失败时回落到内置直连（kw / wy）兜底。
-
----
-
-## 🎧 音质档位
-
-8 级音质体系，从高到低排序，播放时按「目标音质 → 逐级降级」级联选取：
-
-| 档位 | key | 显示名 | 角标 |
-|---|---|---|---|
-| 母带 | `master` | 臻品母带 | Master |
-| 全景声 2.0 | `atmos_plus` | 臻品全景声 2.0 | Atmos |
-| 全景声 | `atmos` | 臻品全景声 | Atmos |
-| 高解析 | `hires` | Hi-Res 高解析 | Hi-Res |
-| 24bit 无损 | `flac24bit` | Hi-Res 24bit | Hi-Res |
-| 无损 | `flac` | 无损 FLAC | SQ |
-| 高品 | `320k` | 高品 320k | HQ |
-| 标准 | `128k` | 标准 128k | STD |
-
-> 音质档位是开放的：**如需支持新增档位，只需在 js 自定义源脚本里声明该档位的 quality key（即脚本上报的 `sources[平台].qualitys` 列表中加上对应字符串，并在 `musicUrl` 解析里处理该 `type`），App 端在搜索 / 播放 / 下载 / Hi-Res 选档全链路即可直接使用，无需改动客户端。**
-
----
-
-## 🎨 设计风格
-
-- **纯暗色主题**，主品牌色为绿色 `#4ADE80`（焦点光晕 / 选中态 / 进度 / 当前歌词），危险操作用红 `#EF5A6F`、软提示用琥珀 `#E8B341`、信息用蓝 `#61AFEF`。
-- **大屏 / 远距离阅读**：大圆角卡片、大封面、克制的层级与留白；各平台有独立标识色便于一眼区分来源。
-- **遥控器优先**：顶部导航 pill + 内容区 + 全屏播放器覆盖层；列表用 `focusRestorer()` 记忆焦点，`focusProperties` 约束方向键出口，弹窗设默认焦点，OK = 主操作 / 返回 = 关闭。
-- **动效**：焦点缩放 / 描边、黑胶旋转、歌词逐行滚动与渐隐聚焦当前行。
-
----
-
-## ⚙️ 设置说明
-
-所有设置都在顶部导航最右侧的 **设置（齿轮）** 里，改完即时生效、本地持久化。各项含义与默认值：
-
-| 设置项 | 作用 | 默认值 |
-|---|---|---|
-| **播放音质** | 全局**目标音质上限**。播放/下载时每首歌取「≤ 此档的最佳可用音质」，不支持则自动逐级降级（master → … → 128k）。 | `Hi-Res 24bit`（flac24bit） |
-| **音频硬件直通** | Hi-Res 音频经 DSP / HDMI 直通输出（audio offload），追求 bit-perfect。**部分电视（小米 / 鸿蒙 / 坚果等）音频驱动对此支持有缺陷，播放无损闪退时请关闭此项。** | 开 |
-| **发现页音源** | 推荐（首页）拉取数据用哪些平台，可多选开关（酷我 / 网易云 / 酷狗 / QQ）。至少保留一个。 | 四个全开 |
-| **内置直连兜底** | 自定义源脚本解析失败时，是否尝试 kw/wy 的内置直连兜底。 | 开 |
-| **歌词翻译** | 是否显示歌词的翻译行。 | 开 |
-| **歌词大小** | 全屏播放器歌词字号：标准 / 大 / 最大。 | 标准 |
-| **下载目录** | 下载保存位置：选一个存储卷（内部存储 / SD 卡 / U 盘），或用系统文件夹选择器（SAF）指定任意可浏览文件夹。切换只影响之后的下载。 | 应用专属音乐目录 |
-| **下载并发数** | 同时下载的最大歌曲数（批量下载时排队），范围 1–6，越大越快越占带宽。 | 3 |
-| **批量下载 · 已下载的也按新音质重下** | 歌单「下载全部」时，已下载但音质与所选不同的歌是否按新音质重下（如 128k 升级 FLAC）；关闭则一律跳过已下载。 | 开 |
-| **自定义音源** | 导入 / 启停 / 删除 lx-music v4 脚本：粘贴 URL、直接粘贴脚本、上传 `.js`、或手机扫码操作。 | — |
-
-> 常见操作速查：**改默认下载/播放音质** → 「播放音质」；**播无损歌曲闪退** → 先关「音频硬件直通」，仍闪退再把音质降到 320k；**推荐页只想看某个平台** → 「发现页音源」只留它；**下载太慢/想更快** → 「下载并发数」调大；**升级整张歌单的音质** → 确认「按新音质重下」开着，进歌单「下载全部」选高音质即可。
-
----
-
-## 🧩 自定义源（基于洛雪音乐 lx-music 协议）
-
-本项目保留并复刻了 **洛雪音乐（lx-music）v4 用户脚本协议**，可直接加载社区常见的 lx-music 自定义源脚本：
-
-- `source/js/JsScriptRuntime.kt` 用 `wang.harlon.quickjs:wrapper-android` 在 QuickJS 上下文中运行脚本，复刻预加载契约（`lx_setup` / `__lx_native__` / `__lx_native_call__*`）。
-- HTTP 请求由 `ScriptHttpClient`（OkHttp）原生执行，对齐 lx-music-mobile 的默认 UA / Content-Type / JSON 解析规则。
-- 加解密（AES / RSA / MD5 / Base64）通过 `CryptoBridge` 委托给随工程保留的 Java 辅助类。
-- 自定义脚本负责**播放地址 + 歌词**解析；搜索 / 排行榜 / 歌单为平台直连。
-
-**扩展点**：在原协议基础上，将音质体系从常见的 `128k / 320k / flac / flac24bit` **扩展到 8 级**（新增 `hires / atmos / atmos_plus / master`），并在搜索、播放、下载、Hi-Res 选档全链路打通这些扩展档位。脚本声明支持即可尝试，无需目录接口预先上报。
-
-导入方式：设置页粘贴脚本 URL / 直接粘贴脚本内容 / 上传 `.js` 文件 / 手机扫码操作。
-
----
-
-## 🛠 技术栈
-
-- **Kotlin** + **Jetpack Compose for TV**（`androidx.tv:tv-material`）
-- **Media3 ExoPlayer / Session**（后台播放 + MediaSession 遥控器控制，音视频共用同一 player）
-- **Coil**（封面加载）+ 本地 RenderScript 模糊
-- **OkHttp** + **kotlinx.serialization** + **Coroutines / StateFlow**
-- **QuickJS**（`wang.harlon.quickjs`）运行自定义源脚本
-- **NanoHTTPD** + **ZXing**（手机扫码 → 局域网推送输入）
-- **DataStore / filesDir JSON** 持久化；**DocumentFile (SAF)** 本地导入
-- 手写依赖容器 `AppContainer`（不引入 Hilt）
-
----
-
-## 📦 项目结构
-
-```
-app/src/main/java/com/walkman/tv/
-├── App.kt / MainActivity.kt          应用入口（QuickJSLoader + bootstrap）
-├── di/                               AppContainer（手写 DI）/ LocalServer（扫码输入）/ AppEvents
-├── data/model                        Track / SourceID / Quality / Playlist / Songlist / Downloads …
-├── data/store                        Library / Settings / Script / Download / LocalFolder / CoverCache
-├── crypto/AES.java + RSA.java        密码学辅助（被 JS 引擎调用）
-├── source/js                         JsScriptRuntime / ScriptHttpClient / CryptoBridge
-├── source/catalog                    各平台直连 API：搜索 / 排行榜 / 歌单 / MV
-├── source/builtin                    kw·wy 直连兜底 + 直连歌词
-├── source                            SourceManager（音质级联 + 换源）/ OtherSourceFinder
-├── playback                          PlaybackController (Media3) / 下载 / 本地扫描 / 在线歌单导入 / LyricParser
-├── ui                                RootScreen + TopNav + 各分区屏幕 + 全屏播放器 + 弹窗组件
-└── assets/script/user-api-preload.js QuickJS 预加载脚本
-```
-
----
-
-## 🚀 构建与运行
-
-环境：Android Studio（建议 JDK 17+），`compileSdk 36` / `minSdk 23` / `targetSdk 34`。
+在配置好 Android SDK 的构建环境中运行：
 
 ```bash
-# 1. 配置本机 SDK
-echo "sdk.dir=$ANDROID_HOME" > local.properties
-
-# 2. 构建调试包
-./gradlew assembleDebug
-
-# 3. 安装到 Android TV 设备 / 模拟器（建议 Android TV 1080p, API 34）
-./gradlew installDebug
-```
-
-正式打包（Release）：
-
-```bash
-# 正式 Release APK（按 ABI 拆分，产物在 app/build/outputs/apk/release/）
+./gradlew testDebugUnitTest assembleDebug
 ./gradlew assembleRelease
-
-# 或打 Android App Bundle（上架用）
-./gradlew bundleRelease
 ```
 
-> 正式签名：在仓库根目录放一个 `keystore.properties`（含 `storeFile` / `storePassword` / `keyAlias` / `keyPassword`，指向你的 `release.keystore`），`assembleRelease` 会自动用它签名。**未提供时会回落到 debug 签名**，产物依然可直接安装（仅用于自测，不要用于上架）。
+输出位于 `app/build/outputs/apk/`。Debug APK 使用仓库已有的调试签名以便测试。Release 工作流在推送 `v*` 标签后构建并上传四种 APK；如未配置仓库的 Release 签名密钥，现有工作流会回退到调试签名。需要正式分发签名时，请先配置 `RELEASE_KEYSTORE_BASE64`、`RELEASE_STORE_PASSWORD`、`RELEASE_KEY_ALIAS`、`RELEASE_KEY_PASSWORD`。
 
-启动后落在「推荐」首页，方向键在导航 pill / 卡片 / 列表间移动焦点，OK 进入全屏播放器。
+主要代码位于 `app/src/main/java/com/walkman/tv/`：`cloud/` 处理 QQ/网易云账号，`source/` 处理平台目录与音源脚本，`playback/` 处理播放、下载和更新，`ui/` 为 TV 页面与焦点交互。自动构建见 [Debug workflow](.github/workflows/debug.yml) 与 [Release workflow](.github/workflows/release.yml)。
 
----
+## 来源、许可与声明
 
-## 📌 致谢与声明
+本项目是从 **[SincereXing/walkman-tv](https://github.com/SincereXing/walkman-tv)** 派生的修改版，保留原版的 Android TV 播放器基础功能和 Apache-2.0 许可。本版增加的账号、推荐页、语音、品牌与更新功能由本仓库维护；问题与更新请在本仓库反馈。感谢 [洛雪音乐 lx-music](https://github.com/lyswhut/lx-music-mobile) 的脚本协议与社区生态。
 
-- 自定义源协议与预加载脚本来自 **[洛雪音乐 lx-music](https://github.com/lyswhut/lx-music-mobile)**，感谢其生态与社区脚本。本项目仅复刻其脚本运行契约以兼容现有自定义源，并未内置任何音源。
-- 本项目为**学习与个人使用**目的的开源播放器，不提供、不内置任何版权音频资源；所有内容均由用户自行导入的自定义源或公开接口提供。请在所在地法律允许的范围内使用，支持正版音乐。
-- 与上述任何音乐平台、洛雪音乐项目均无隶属或合作关系。
-
-## 📄 License
-
-[Apache License 2.0](LICENSE)
+本项目与 QQ 音乐、网易云音乐、酷狗音乐、酷我音乐及原版作者均无官方合作关系。应用不内置或提供版权音乐内容，请遵守相关服务条款并支持正版。
