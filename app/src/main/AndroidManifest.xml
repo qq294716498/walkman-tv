@@ -34,7 +34,7 @@
       android:networkSecurityConfig="@xml/network_security_config"
       android:icon="@drawable/haoting_icon"
       android:roundIcon="@drawable/haoting_icon"
-      android:banner="@drawable/haoting_banner"
+      android:banner="@drawable/haoting_tv_banner"
       android:allowBackup="false"
       android:supportsRtl="true"
       android:theme="@style/AppTheme"
