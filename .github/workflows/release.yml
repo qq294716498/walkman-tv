@@ -1,6 +1,6 @@
 name: Release
 
-# Build release APKs on v* tags, and publish v1.4.0 once this workflow lands on main.
+# Build release APKs on v* tags, and publish v1.4.1 once this workflow lands on main.
 #
 # Signing (optional): set these repo Secrets to sign with your release key. If absent, the
 # build falls back to debug signing (installable, but only for testing — don't ship it).
