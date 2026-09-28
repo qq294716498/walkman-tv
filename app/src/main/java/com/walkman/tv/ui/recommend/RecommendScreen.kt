@@ -426,7 +426,7 @@ private fun RecommendGrid(
         Column(modifier = Modifier.padding(top = 16.dp)) {
           Text("发现音乐", color = AppColors.TextPrimary, fontSize = 22.sp,
             fontWeight = FontWeight.Bold)
-          Text("以下是原有的公开推荐内容", color = AppColors.TextMuted, fontSize = 12.sp)
+          Text("公开推荐 · 来自已启用的音乐平台", color = AppColors.TextMuted, fontSize = 12.sp)
         }
       }
       when {
