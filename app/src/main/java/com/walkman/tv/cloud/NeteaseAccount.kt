@@ -216,6 +216,21 @@ class NeteaseAccount(private val context: Context, private val http: CatalogHttp
         }
     }
 
+    suspend fun recommendedPlaylists(): List<SonglistInfo> {
+        val response = post("/weapi/v1/discovery/recommend/resource", JSONObject())
+        val array = response.optJSONArray("recommend") ?: return emptyList()
+        return (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val id = item.optLong("id").takeIf { it > 0L }?.toString()
+                ?: return@mapNotNull null
+            SonglistInfo(id, SourceID.WY, item.optString("name"),
+                item.optJSONObject("creator")?.optString("nickname").orEmpty(),
+                item.optString("picUrl").ifBlank { item.optString("coverImgUrl") }
+                    .ifBlank { null },
+                item.optInt("trackCount").takeIf { it > 0 })
+        }
+    }
+
     suspend fun heart(): List<Track> {
         val lists = playlists()
         val liked = lists.firstOrNull { it.name.contains("喜欢") } ?: lists.firstOrNull()

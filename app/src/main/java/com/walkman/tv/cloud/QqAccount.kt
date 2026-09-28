@@ -156,12 +156,40 @@ class QqAccount(
         val id = data.opt("musicid")?.toString().orEmpty()
         val key = data.optString("musickey")
         if (id.isBlank() || key.isBlank()) throw IllegalStateException("QQ 音乐登录失败")
+        val provisional = Session(id, "QQ $id", key, data.optString("encryptUin"))
+        val nickname = data.optString("nick").ifBlank { data.optString("nickname") }
+            .ifBlank { runCatching { profileName(provisional) }.getOrNull().orEmpty() }
+            .ifBlank { provisional.name }
         sessions.removeAll { it.id == id }
-        sessions.add(Session(id, "QQ $id", key, data.optString("encryptUin")))
+        sessions.add(provisional.copy(name = nickname))
         activeId = id
         persist()
         mutableState.value = snapshot()
     }
+
+    /** Resolve names for accounts saved by older builds, which stored only QQ numbers. */
+    suspend fun refreshNames() {
+        var changed = false
+        for (index in sessions.indices) {
+            val session = sessions[index]
+            if (session.name.isNotBlank() && session.name != "QQ ${session.id}") continue
+            val name = runCatching { profileName(session) }.getOrNull().orEmpty()
+            if (name.isNotBlank()) {
+                sessions[index] = session.copy(name = name)
+                changed = true
+            }
+        }
+        if (changed) {
+            persist()
+            mutableState.value = snapshot()
+        }
+    }
+
+    private suspend fun profileName(session: Session): String =
+        profileGet("https://c.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg",
+            mapOf("cid" to "205360838", "ct" to "20",
+                "userid" to session.id, "reqfrom" to "1"), session)
+            .optJSONObject("creator")?.optString("nick").orEmpty()
 
     suspend fun playlists(accountId: String? = null): List<SonglistInfo> {
         val s = sessionFor(accountId)
@@ -241,8 +269,12 @@ class QqAccount(
                     }
                 },
                 item.optString("picurl").ifBlank {
-                    item.optString("logo").ifBlank {
-                        item.optString("diss_cover").ifBlank { item.optString("cover") }
+                    item.optString("pic_url").ifBlank {
+                        item.optString("logo").ifBlank {
+                            item.optString("diss_cover").ifBlank {
+                                item.optString("dir_pic_url2").ifBlank { item.optString("cover") }
+                            }
+                        }
                     }
                 }.ifBlank { null },
                 item.optInt("songnum").takeIf { it > 0 }

@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,6 +34,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -60,7 +67,12 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
     val active by appContainer.cloudSelection.source.collectAsState()
     val scope = rememberCoroutineScope()
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    val qqFocus = remember { FocusRequester() }
+    var tab by remember { mutableStateOf(if (active == SourceID.TX) SourceID.TX else SourceID.WY) }
+    LaunchedEffect(tab) {
+        runCatching { if (tab == SourceID.TX) qqFocus.requestFocus() else firstFocus.requestFocus() }
+    }
+    LaunchedEffect(Unit) { runCatching { qq.refreshNames() } }
     var neteaseQr by remember { mutableStateOf<String?>(null) }
     var qqQr by remember { mutableStateOf<QqAccount.Qr?>(null) }
     var showSms by remember { mutableStateOf(false) }
@@ -149,50 +161,108 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             Modifier.width(520.dp).clip(RoundedCornerShape(20.dp))
-                .background(AppColors.BgPanel).padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(9.dp),
+                .background(AppColors.BgPanel).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("音乐账号", color = AppColors.TextPrimary, fontSize = 22.sp,
+            Text("音乐账号", color = AppColors.TextPrimary, fontSize = 21.sp,
                 fontWeight = FontWeight.Bold)
-            Text("在推荐页左右切换账号；在这里添加或移除账号",
-                color = AppColors.TextSecondary, fontSize = 13.sp)
-            Text("网易云音乐 · ${neteaseState.accounts.size} 个账号",
-                color = AppColors.TextPrimary, fontSize = 15.sp,
-                fontWeight = FontWeight.Bold)
-            AccountRow("＋ 添加网易云账号", false, firstFocus) {
-                if (!busy) scope.launch {
-                    busy = true
-                    error = null
-                    runCatching { netease.newQr() }
-                        .onSuccess { neteaseQr = it; status = "请用网易云音乐扫码" }
-                        .onFailure { error = it.message ?: "无法生成二维码" }
-                    busy = false
+            Text("查看已登录账号；选中账号后，可在推荐页使用其内容",
+                color = AppColors.TextSecondary, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(SourceID.WY, SourceID.TX).forEach { source ->
+                    val selected = tab == source
+                    val title = if (source == SourceID.WY) "网易云" else "QQ音乐"
+                    val count = if (source == SourceID.WY)
+                        neteaseState.accounts.size else qqState.accounts.size
+                    TvFocusable(
+                        onClick = { tab = source },
+                        modifier = Modifier.weight(1f).height(46.dp)
+                            .focusRequester(if (source == SourceID.WY) firstFocus else qqFocus)
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.DirectionLeft -> { tab = SourceID.WY; true }
+                                        Key.DirectionRight -> { tab = SourceID.TX; true }
+                                        else -> false
+                                    }
+                                } else false
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        container = if (selected) AppColors.Card else AppColors.BgPanel,
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("$title · $count", color = if (selected)
+                                AppColors.BrandPrimary else AppColors.TextSecondary,
+                                fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
-            AccountRow("＋ 手机号验证码登录网易云", false) {
-                showSms = true
-            }
-            Text("QQ 音乐 · ${qqState.accounts.size} 个账号",
-                color = AppColors.TextPrimary, fontSize = 15.sp,
+            Text("已登录账号", color = AppColors.TextPrimary, fontSize = 15.sp,
                 fontWeight = FontWeight.Bold)
-            AccountRow("＋ 添加 QQ 音乐账号", false) {
-                if (!busy) scope.launch {
-                    busy = true
-                    error = null
-                    runCatching { qq.newQr() }
-                        .onSuccess { qqQr = it; status = "请用 QQ 扫码" }
-                        .onFailure { error = it.message ?: "无法生成二维码" }
-                    busy = false
+            val count = if (tab == SourceID.WY) neteaseState.accounts.size
+                else qqState.accounts.size
+            if (count == 0) {
+                Text("尚未登录", color = AppColors.TextSecondary,
+                    fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    if (tab == SourceID.WY) {
+                        items(neteaseState.accounts, key = { it.id }) { account ->
+                            AccountRow(account.nickname.ifBlank { account.id },
+                                neteaseState.activeId == account.id) {
+                                netease.select(account.id)
+                                appContainer.cloudSelection.select(SourceID.WY)
+                            }
+                        }
+                    } else {
+                        items(qqState.accounts, key = { it.id }) { account ->
+                            AccountRow(account.name.ifBlank { "QQ ${account.id}" },
+                                qqState.activeId == account.id) {
+                                qq.select(account.id)
+                                appContainer.cloudSelection.select(SourceID.TX)
+                            }
+                        }
+                    }
+                }
+            }
+            Text("添加账号", color = AppColors.TextPrimary, fontSize = 15.sp,
+                fontWeight = FontWeight.Bold)
+            if (tab == SourceID.WY) {
+                AccountRow("扫码登录网易云", false) {
+                    if (!busy) scope.launch {
+                        busy = true
+                        error = null
+                        runCatching { netease.newQr() }
+                            .onSuccess { neteaseQr = it; status = "请用网易云音乐扫码" }
+                            .onFailure { error = it.message ?: "无法生成二维码" }
+                        busy = false
+                    }
+                }
+                AccountRow("手机号验证码登录", false) { showSms = true }
+            } else {
+                AccountRow("扫码登录 QQ 音乐", false) {
+                    if (!busy) scope.launch {
+                        busy = true
+                        error = null
+                        runCatching { qq.newQr() }
+                            .onSuccess { qqQr = it; status = "请用 QQ 扫码" }
+                            .onFailure { error = it.message ?: "无法生成二维码" }
+                        busy = false
+                    }
                 }
             }
             if (busy) Text("正在生成二维码…", color = AppColors.TextSecondary, fontSize = 12.sp)
             error?.let { Text(it, color = AppColors.BrandPrimary, fontSize = 12.sp) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                val hasActive = if (active == SourceID.TX) qqState.connected else neteaseState.connected
+                val hasActive = if (tab == SourceID.TX) qqState.connected else neteaseState.connected
                 if (hasActive) {
                     TvPill(onClick = {
-                        if (active == SourceID.TX) qq.disconnect() else netease.disconnect()
-                    }) { Text("移除当前账号", fontSize = 13.sp) }
+                        if (tab == SourceID.TX) qq.disconnect() else netease.disconnect()
+                    }) { Text("移除选中账号", fontSize = 13.sp) }
                     Spacer(Modifier.width(10.dp))
                 }
                 TvPill(onClick = onDismiss) { Text("关闭", fontSize = 13.sp) }
