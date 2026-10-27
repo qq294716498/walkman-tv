@@ -20,6 +20,17 @@ enum class LyricSize(val label: String, val activeSp: Int, val inactiveSp: Int, 
     MAX("最大", 40, 24, 18),
 }
 
+/** Color theme for the player's spinning vinyl disc. GREEN is the original look and the default;
+ *  BLACK (a real record) was requested in #8. Palettes live in PlayerScreen. */
+@Serializable
+enum class VinylColor(val label: String) {
+    GREEN("翠绿"),
+    BLACK("经典黑"),
+    RED("酒红"),
+    BLUE("深蓝"),
+    GOLD("琥珀金"),
+}
+
 @Serializable
 data class Settings(
     val preferredQuality: Quality = Quality.FLAC24,
@@ -29,8 +40,18 @@ data class Settings(
      *  settings toggle lets affected users turn it off. Default on so existing users keep
      *  the current behaviour. */
     val audioOffloadEnabled: Boolean = true,
+    /** 强制软件解码（音频）。部分电视、盒子的硬件解码器会闪退或没声音，开启后只用系统软件解码器，
+     *  同时关闭硬件直通。默认关闭。 */
+    val forceSoftwareDecoding: Boolean = false,
     val showLyricTranslation: Boolean = true,
     val lyricSize: LyricSize = LyricSize.STANDARD,
+    val vinylColor: VinylColor = VinylColor.GREEN,
+    /** Player screen: hide progress bar + transport after a few idle seconds; any D-pad / OK key
+     *  brings them back. Off by default. */
+    val autoHidePlayerControls: Boolean = false,
+    /** 显示调试信息: app-wide switch for diagnostic UI (off by default). Currently: the player's
+     *  status line (正在获取播放地址 / 播放失败已跳过 / 已换音源 …). Gate future debug UI on it too. */
+    val showDebugInfo: Boolean = false,
     /** Absolute path of the chosen download root (a writable storage volume). null ⇒ default
      *  app-scoped Music dir on primary storage. See DownloadStore.availableRoots(). */
     val customDownloadDir: String? = null,

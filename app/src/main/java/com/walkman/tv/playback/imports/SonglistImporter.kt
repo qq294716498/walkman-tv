@@ -1,9 +1,19 @@
 package com.walkman.tv.playback.imports
 
+import com.walkman.tv.data.model.Playlist
+import com.walkman.tv.data.model.PlaylistOrigin
+import com.walkman.tv.data.model.SonglistDetail
 import com.walkman.tv.data.model.SonglistInfo
 import com.walkman.tv.data.model.SourceID
 import com.walkman.tv.data.store.LibraryStore
 import com.walkman.tv.source.catalog.Songlists
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /** URL/ID parser result. Source + id uniquely identifies a platform playlist. */
 data class SonglistRef(val source: SourceID, val id: String)
@@ -15,6 +25,8 @@ sealed class ImportError(message: String) : Throwable(message) {
 }
 
 data class ImportResult(val playlistId: String, val count: Int)
+
+data class RefreshResult(val total: Int, val added: Int, val removed: Int, val kept: Int)
 
 /**
  * URL → SonglistRef parser + import orchestrator. Spec docs/songlist-import-spec-android-tv.md.
@@ -76,8 +88,96 @@ object SonglistImporter {
         songlists: Songlists,
         library: LibraryStore,
     ): ImportResult {
-        val svc = songlists.serviceFor(ref.source) ?: throw ImportError.UnrecognizedURL
+        val detail = fetch(ref, songlists)
 
+        val trimmed = customName?.trim().orEmpty()
+        val name = when {
+            trimmed.isNotEmpty() -> trimmed
+            detail.info.name.isNotEmpty() -> detail.info.name
+            else -> "导入的歌单"
+        }
+        val playlist = library.createList(name, PlaylistOrigin(ref.source, ref.id, detail.tracks.map { it.id }))
+        // Batch write: one StateFlow update + one library.json save for the whole songlist.
+        library.addAllToList(playlist.id, detail.tracks)
+        return ImportResult(playlistId = playlist.id, count = detail.tracks.size)
+    }
+
+    private val _refreshing = MutableStateFlow<Set<String>>(emptySet())
+    /** Ids of playlists with a 更新歌单 in flight — lets the detail page show 更新中… again if the
+     *  user leaves and comes back mid-refresh. */
+    val refreshing: StateFlow<Set<String>> = _refreshing.asStateFlow()
+
+    /**
+     * Fire-and-forget 更新歌单 on an app-lifetime [scope], so leaving the page doesn't cancel it
+     * halfway (which could also leave library.json unsaved). [onDone] gets the user-facing
+     * result message on the main thread. No-op if this list is already refreshing.
+     */
+    fun startRefresh(
+        playlist: Playlist,
+        songlists: Songlists,
+        library: LibraryStore,
+        scope: CoroutineScope,
+        onDone: (String) -> Unit,
+    ) {
+        if (playlist.id in _refreshing.value) return
+        _refreshing.update { it + playlist.id }
+        scope.launch {
+            val msg = try {
+                val r = refreshPlaylist(playlist, songlists, library)
+                if (r.added == 0 && r.removed == 0) "「${playlist.name}」已是最新（${r.total} 首）"
+                else "「${playlist.name}」已更新：共 ${r.total} 首，新增 ${r.added}，移除 ${r.removed}" +
+                    if (r.kept > 0) "（保留手动添加的 ${r.kept} 首）" else ""
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                "「${playlist.name}」更新失败：${e.localizedMessage ?: e}"
+            } finally {
+                _refreshing.update { it - playlist.id }
+            }
+            onDone(msg)
+        }
+    }
+
+    /**
+     * 更新歌单: re-fetch an imported list's platform songlist and mirror it (order included).
+     * Songs the user added by hand (＋歌单 / local import into this list) are kept, appended after
+     * the platform songs. "By hand" = not in the platform snapshot from the last import/refresh;
+     * lists imported by 1.4.0 have no snapshot, so there it falls back to "from another source"
+     * (local songs, other platforms) — same-platform songs added by hand can't be told apart.
+     */
+    private suspend fun refreshPlaylist(
+        playlist: Playlist,
+        songlists: Songlists,
+        library: LibraryStore,
+    ): RefreshResult {
+        val origin = playlist.origin ?: throw ImportError.UnrecognizedURL
+        val detail = fetch(SonglistRef(origin.source, origin.id), songlists)
+        // Re-read after the (slow) fetch so edits made meanwhile aren't lost.
+        val live = library.userLists.value.firstOrNull { it.id == playlist.id }
+            ?: throw IllegalStateException("歌单已被删除")
+        val snapshot = origin.platformTrackIds?.toHashSet()
+        val (fromPlatform, byHand) = live.tracks.partition { t ->
+            if (snapshot != null) t.id in snapshot else t.source == origin.source
+        }
+        val newIds = detail.tracks.mapTo(HashSet()) { it.id }
+        val kept = byHand.filter { it.id !in newIds }
+        val oldIds = fromPlatform.mapTo(HashSet()) { it.id }
+        library.replaceTracks(
+            playlist.id,
+            detail.tracks + kept,
+            origin.copy(platformTrackIds = detail.tracks.map { it.id }),
+        )
+        return RefreshResult(
+            total = newIds.size + kept.size,
+            added = newIds.count { it !in oldIds },
+            removed = oldIds.count { it !in newIds },
+            kept = kept.size,
+        )
+    }
+
+    private suspend fun fetch
+(ref: SonglistRef, songlists: Songlists): SonglistDetail {
+        val svc = songlists.serviceFor(ref.source) ?: throw ImportError.UnrecognizedURL
         // Stub only needs id + source — fetchDetail looks at those, the rest get overwritten.
         val stub = SonglistInfo(
             id = ref.id, source = ref.source,
@@ -89,16 +189,6 @@ object SonglistImporter {
             throw ImportError.FetchFailed(e.localizedMessage ?: e.toString())
         }
         if (detail.tracks.isEmpty()) throw ImportError.EmptyPlaylist
-
-        val trimmed = customName?.trim().orEmpty()
-        val name = when {
-            trimmed.isNotEmpty() -> trimmed
-            detail.info.name.isNotEmpty() -> detail.info.name
-            else -> "导入的歌单"
-        }
-        val playlist = library.createList(name)
-        // Batch write: one StateFlow update + one library.json save for the whole songlist.
-        library.addAllToList(playlist.id, detail.tracks)
-        return ImportResult(playlistId = playlist.id, count = detail.tracks.size)
+        return detail
     }
 }

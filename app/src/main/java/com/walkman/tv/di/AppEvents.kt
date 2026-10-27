@@ -18,6 +18,11 @@ class AppEvents {
     )
     val menuKey: SharedFlow<Unit> = _menuKey.asSharedFlow()
 
+    /** Screen-level hook run from [MainActivity.dispatchKeyEvent] before any view sees the key —
+     *  works even when nothing in Compose holds focus (e.g. player controls auto-hidden). Return
+     *  true to consume. Main thread only; the owner clears it when it leaves. */
+    var keyInterceptor: ((android.view.KeyEvent) -> Boolean)? = null
+
     private val _qrSearchKeyword = MutableSharedFlow<String>(
         extraBufferCapacity = 4,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,

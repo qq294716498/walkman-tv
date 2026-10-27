@@ -292,11 +292,12 @@ private fun ResultsPane(
         else -> Column(modifier = Modifier.fillMaxSize()) {
             if (songlists.isNotEmpty()) {
                 SectionHeader("歌单 (${songlists.size})")
+                val uniqueSonglists = remember(songlists) { songlists.distinctBy { it.id + "_" + it.source.key } }
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(vertical = 4.dp),
                 ) {
-                    items(songlists, key = { it.id + "_" + it.source.key }) { sl ->
+                    items(uniqueSonglists, key = { it.id + "_" + it.source.key }) { sl ->
                         Box(modifier = Modifier.width(140.dp)) {
                             MediaCard(
                                 title = sl.name,

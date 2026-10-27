@@ -65,6 +65,7 @@ import com.walkman.tv.ui.appContainer
 import com.walkman.tv.ui.components.QrDialog
 import com.walkman.tv.ui.components.TvFocusable
 import com.walkman.tv.ui.components.TvPill
+import com.walkman.tv.ui.components.TvTextFieldHost
 import com.walkman.tv.ui.theme.AppColors
 import com.walkman.tv.playback.update.UpdateState
 import kotlinx.coroutines.launch
@@ -74,6 +75,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val importFocus = remember { FocusRequester() }
     val settings by appContainer.settingsStore.settings.collectAsState()
     val scripts by appContainer.scriptStore.scripts.collectAsState()
     val scriptUpdateStatus by appContainer.scriptStore.updateStatus.collectAsState()
@@ -99,7 +101,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 } else {
                     status = "正在导入文件…"
                     val r = appContainer.scriptStore.import(raw)
-                    status = r.fold({ "已导入：${it.name}" }, { "导入失败：${it.message}" })
+                    status = r.fold({ it.message }, { "导入失败：${it.message}" })
                 }
             }
         }
@@ -152,7 +154,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             showQr = false
             status = "正在导入上传的脚本…"
             val r = appContainer.scriptStore.import(raw)
-            status = r.fold({ "已导入：${it.name}" }, { "导入失败：${it.message}" })
+            status = r.fold({ it.message }, { "导入失败：${it.message}" })
         }
     }
 
@@ -217,14 +219,17 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        Section("音频硬件直通") {
+        Section("音频解码") {
             ToggleRow("Hi-Res 硬件直通（播放无损闪退时请关闭）", settings.audioOffloadEnabled) {
                 scope.launch { appContainer.settingsStore.update { it.copy(audioOffloadEnabled = !it.audioOffloadEnabled) } }
+            }
+            ToggleRow("强制软件解码（播放闪退或没声音时请开启，下一首起生效）", settings.forceSoftwareDecoding) {
+                scope.launch { appContainer.settingsStore.update { it.copy(forceSoftwareDecoding = !it.forceSoftwareDecoding) } }
             }
         }
 
         Section("歌词翻译") {
-            ToggleRow("显示歌词翻译", settings.showLyricTranslation) {
+            ToggleRow("显示歌词翻译（外语歌有翻译时在每句下方显示）", settings.showLyricTranslation) {
                 scope.launch { appContainer.settingsStore.update { it.copy(showLyricTranslation = !it.showLyricTranslation) } }
             }
         }
@@ -240,6 +245,31 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     }
                 }
             }
+        }
+
+        Section("黑胶颜色") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.walkman.tv.data.store.VinylColor.entries.forEach { color ->
+                    TvPill(
+                        onClick = { scope.launch { appContainer.settingsStore.update { it.copy(vinylColor = color) } } },
+                        selected = settings.vinylColor == color,
+                    ) {
+                        Text(color.label, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        Section("播放界面") {
+            ToggleRow("播放控件自动隐藏", settings.autoHidePlayerControls) {
+                scope.launch { appContainer.settingsStore.update { it.copy(autoHidePlayerControls = !it.autoHidePlayerControls) } }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "开启后，播放页 5 秒无操作自动隐藏进度条和播放按钮，按方向键或确认键重新显示。",
+                color = AppColors.TextMuted,
+                fontSize = 11.sp,
+            )
         }
 
         Section("下载目录") {
@@ -356,24 +386,34 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 fontSize = 12.sp,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("URL（http://...）或直接粘贴 JS 代码", color = AppColors.TextMuted) },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { importInput(scope, url) { status = it } }),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = AppColors.TextPrimary,
-                        unfocusedTextColor = AppColors.TextPrimary,
-                        focusedBorderColor = AppColors.AccentGreen,
-                        unfocusedBorderColor = AppColors.Card,
-                        cursorColor = AppColors.AccentGreen,
-                    ),
-                )
+                TvTextFieldHost(modifier = Modifier.weight(1f), shape = RoundedCornerShape(4.dp)) { fieldModifier ->
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(fieldModifier),
+                        placeholder = { Text("URL（http://...）或直接粘贴 JS 代码", color = AppColors.TextMuted) },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { importInput(scope, url) { status = it } }),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = AppColors.TextPrimary,
+                            unfocusedTextColor = AppColors.TextPrimary,
+                            focusedBorderColor = AppColors.AccentGreen,
+                            unfocusedBorderColor = AppColors.Card,
+                            cursorColor = AppColors.AccentGreen,
+                        ),
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
-                TvPill(onClick = { importInput(scope, url) { status = it } }, selected = true) { Text("导入", fontSize = 14.sp) }
+                TvPill(
+                    onClick = { importInput(scope, url) { status = it } },
+                    selected = true,
+                    focusRequester = importFocus,
+                ) {
+                    Text("导入", fontSize = 14.sp)
+                }
                 Spacer(Modifier.width(8.dp))
                 TvPill(
                     onClick = {
@@ -445,6 +485,18 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     }
                 }
             }
+        }
+
+        Section("调试") {
+            ToggleRow("显示调试信息", settings.showDebugInfo) {
+                scope.launch { appContainer.settingsStore.update { it.copy(showDebugInfo = !it.showDebugInfo) } }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "排查音源等问题时开启，平时不需要。目前包括：播放页歌手名下方显示获取播放地址、播放失败自动跳过、换音源等状态。",
+                color = AppColors.TextMuted,
+                fontSize = 11.sp,
+            )
         }
 
         UpdateSection()
@@ -536,7 +588,7 @@ private fun importInput(scope: kotlinx.coroutines.CoroutineScope, input: String,
             val raw = if (isUrl) appContainer.fetchText(trimmed) else trimmed
             appContainer.scriptStore.import(raw).getOrThrow()
         }
-        onStatus(result.fold({ "已导入：${it.name}" }, { "导入失败：${it.message}" }))
+        onStatus(result.fold({ it.message }, { "导入失败：${it.message}" }))
     }
 }
 
@@ -549,7 +601,7 @@ private fun importFromUrl(scope: kotlinx.coroutines.CoroutineScope, url: String,
             val raw = appContainer.fetchText(url.trim())
             appContainer.scriptStore.import(raw).getOrThrow()
         }
-        onStatus(result.fold({ "已导入：${it.name}" }, { "导入失败：${it.message}" }))
+        onStatus(result.fold({ it.message }, { "导入失败：${it.message}" }))
     }
 }
 

@@ -55,7 +55,10 @@ class LocalMusicStore(
         } catch (e: SecurityException) {
             android.util.Log.w("LocalMusicStore", "takePersistableUriPermission failed: ${e.message}")
         }
-        val folderID = java.util.UUID.randomUUID().toString()
+        // Same folder imported again → reuse its record, so track ids (hash of folderID + path)
+        // stay stable and re-imports dedupe instead of duplicating every song.
+        val existing = localFolderStore.folders.value.firstOrNull { it.persistedUriString == treeUri.toString() }
+        val folderID = existing?.id ?: java.util.UUID.randomUUID().toString()
         val root = DocumentFile.fromTreeUri(context, treeUri)
             ?: throw IllegalArgumentException("SAF tree uri unreadable")
 
@@ -75,12 +78,11 @@ class LocalMusicStore(
         }
 
         // 4) Anchor the persistent Uri.
-        val record = LocalFolderRecord(
+        val record = existing ?: LocalFolderRecord(
             id = folderID,
             name = playlistName.ifBlank { root.name ?: "本地音乐" },
             persistedUriString = treeUri.toString(),
-        )
-        localFolderStore.add(record)
+        ).also { localFolderStore.add(it) }
         ImportResult(record, tracks)
     }
 
@@ -96,7 +98,9 @@ class LocalMusicStore(
         onProgress: (Float) -> Unit = {},
     ): ImportResult = withContext(Dispatchers.IO) {
         if (!dir.isDirectory) throw IllegalArgumentException("not a directory")
-        val folderID = java.util.UUID.randomUUID().toString()
+        val dirUri = Uri.fromFile(dir).toString()
+        val existing = localFolderStore.folders.value.firstOrNull { it.persistedUriString == dirUri }
+        val folderID = existing?.id ?: java.util.UUID.randomUUID().toString()
 
         val leaves = mutableListOf<Pair<java.io.File, String>>()
         walkFile(dir, "", leaves)
@@ -111,12 +115,11 @@ class LocalMusicStore(
             onProgress((idx + 1).toFloat() / leaves.size)
         }
 
-        val record = LocalFolderRecord(
+        val record = existing ?: LocalFolderRecord(
             id = folderID,
             name = playlistName.ifBlank { dir.name.ifBlank { "本地音乐" } },
-            persistedUriString = Uri.fromFile(dir).toString(),
-        )
-        localFolderStore.add(record)
+            persistedUriString = dirUri,
+        ).also { localFolderStore.add(it) }
         ImportResult(record, tracks)
     }
 
@@ -158,6 +161,54 @@ class LocalMusicStore(
     }
 
     data class ImportResult(val record: LocalFolderRecord, val tracks: List<Track>)
+
+    /** Folder id of a local track (`lf://<folderID>/<rel>`), or null for non-local tracks. */
+    fun folderIdOf(track: Track): String? {
+        if (!track.songmid.startsWith("lf://")) return null
+        return track.songmid.removePrefix("lf://").substringBefore('/', "").ifEmpty { null }
+    }
+
+    fun hasFolder(folderID: String): Boolean = localFolderStore.find(folderID) != null
+
+    /**
+     * 重新扫描: walk an already-imported folder again and return its current tracks (sorted like
+     * an import). Files already in [known] (matched by the stable id) are reused as-is; only new
+     * files get tag extraction, so a rescan of a big unchanged folder is quick. Throws if the
+     * folder record is gone or the folder is unreachable (e.g. USB drive unplugged) — callers
+     * must not treat that as "every song was deleted".
+     */
+    suspend fun rescanFolder(
+        folderID: String,
+        known: Map<String, Track>,
+        onProgress: (Float) -> Unit = {},
+    ): List<Track> = withContext(Dispatchers.IO) {
+        val record = localFolderStore.find(folderID) ?: throw IllegalStateException("文件夹记录已丢失")
+        val rootUri = Uri.parse(record.persistedUriString)
+        val leaves: List<Pair<Uri, String>> = if (rootUri.scheme == "file") {
+            val dir = java.io.File(rootUri.path ?: "")
+            if (!dir.isDirectory || dir.listFiles() == null) throw IllegalStateException("文件夹不可访问：${record.name}")
+            mutableListOf<Pair<java.io.File, String>>().also { walkFile(dir, "", it) }
+                .map { (f, rel) -> Uri.fromFile(f) to rel }
+        } else {
+            val root = runCatching { DocumentFile.fromTreeUri(context, rootUri) }.getOrNull()
+                ?.takeIf { it.isDirectory } ?: throw IllegalStateException("文件夹不可访问：${record.name}")
+            mutableListOf<Pair<DocumentFile, String>>().also { walk(root, "", it) }
+                .map { (f, rel) -> f.uri to rel }
+        }.sortedBy { it.second.lowercase() }
+        // Zero audio files almost always means we lost read access (permission revoked, drive
+        // remounted empty) rather than the user deleting everything — refuse instead of wiping.
+        if (leaves.isEmpty()) throw IllegalStateException("「${record.name}」里没有读到音频文件，可能没有存储权限或文件夹已移动")
+
+        leaves.mapIndexed { idx, (uri, relPath) ->
+            val id = "local_" + sha256Hex("$folderID|$relPath").take(24)
+            val track = known[id] ?: readTrack(uri, relPath, folderID).let { (t, cover) ->
+                cover?.let { coverCache.put(t.id, it) }
+                t
+            }
+            onProgress((idx + 1).toFloat() / leaves.size)
+            track
+        }
+    }
 
     // ─── Scan ───────────────────────────────────────────────────────────────────
 

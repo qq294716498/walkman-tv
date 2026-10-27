@@ -25,6 +25,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -55,7 +58,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** One focusable track row: index, cover, name/singer, quality badge + source chip.
- *  [downloaded] shows a small green ✓ download icon — opt-in, only set by 我的列表. */
+ *  [downloaded] shows a small green ✓ download icon — opt-in, only set by 我的列表.
+ *  [onDownload] / [onAddToPlaylist] / [onRemove] add always-visible icon buttons at the row end (D-pad Right
+ *  from the row reaches them); [modifier] applies to the main (play) focusable. */
 @Composable
 fun TrackRow(
     track: Track,
@@ -63,63 +68,106 @@ fun TrackRow(
     modifier: Modifier = Modifier,
     nowPlaying: Boolean = false,
     downloaded: Boolean = false,
-    onLongClick: (() -> Unit)? = null,
+    onDownload: (() -> Unit)? = null,
+    onAddToPlaylist: (() -> Unit)? = null,
+    onRemove: (() -> Unit)? = null,
+    removeLabel: String = "删除",
     onClick: () -> Unit,
 ) {
-    TvFocusable(onClick = onClick, onLongClick = onLongClick, modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(modifier = Modifier.width(28.dp), contentAlignment = Alignment.Center) {
-                if (nowPlaying) {
-                    MiniWaveform(modifier = Modifier.size(width = 22.dp, height = 18.dp))
-                } else {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TvFocusable(onClick = onClick, modifier = modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(modifier = Modifier.width(28.dp), contentAlignment = Alignment.Center) {
+                    if (nowPlaying) {
+                        MiniWaveform(modifier = Modifier.size(width = 22.dp, height = 18.dp))
+                    } else {
+                        Text(
+                            "${index + 1}",
+                            color = AppColors.TextMuted,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+                Artwork(track.picURL, modifier = Modifier.size(44.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "${index + 1}",
-                        color = AppColors.TextMuted,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
+                        track.name,
+                        color = if (nowPlaying) AppColors.AccentGreen else AppColors.TextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        track.subtitle,
+                        color = AppColors.TextSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
+                Spacer(Modifier.width(8.dp))
+                if (downloaded) {
+                    androidx.tv.material3.Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = "已下载",
+                        tint = AppColors.AccentGreen,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                if (track.hasMv) {
+                    MvBadge()
+                    Spacer(Modifier.width(6.dp))
+                }
+                QualityBadge(track.qualities)
+                Spacer(Modifier.width(8.dp))
+                SourceChip(track.source)
             }
-            Artwork(track.picURL, modifier = Modifier.size(44.dp))
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    track.name,
-                    color = if (nowPlaying) AppColors.AccentGreen else AppColors.TextPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    track.subtitle,
-                    color = AppColors.TextSecondary,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            if (downloaded) {
-                androidx.tv.material3.Icon(
-                    imageVector = Icons.Filled.Download,
-                    contentDescription = "已下载",
-                    tint = AppColors.AccentGreen,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            if (track.hasMv) {
-                MvBadge()
-                Spacer(Modifier.width(6.dp))
-            }
-            QualityBadge(track.qualities)
-            Spacer(Modifier.width(8.dp))
-            SourceChip(track.source)
         }
+        if (onDownload != null || onAddToPlaylist != null || onRemove != null) {
+            // Tight cluster: the buttons sit closer to each other than to the row.
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                onDownload?.let { RowAction(Icons.Filled.Download, "下载", it) }
+                onAddToPlaylist?.let { RowAction(Icons.AutoMirrored.Filled.PlaylistAdd, "添加到歌单", it) }
+                onRemove?.let { RowAction(Icons.Filled.DeleteOutline, removeLabel, it, danger = true) }
+            }
+        }
+    }
+}
+
+/** Small icon button at a track row's end. Dimmed until focused so a column of them stays quiet. */
+@Composable
+private fun RowAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    danger: Boolean = false,
+) {
+    var focused by remember { androidx.compose.runtime.mutableStateOf(false) }
+    TvPill(
+        onClick = onClick,
+        modifier = Modifier.onFocusChanged { focused = it.isFocused },
+        shape = androidx.compose.foundation.shape.CircleShape,
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        accent = if (danger) AppColors.Danger else AppColors.BrandPrimary,
+        contentPadding = PaddingValues(8.dp),
+    ) {
+        androidx.tv.material3.Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = androidx.tv.material3.LocalContentColor.current.copy(alpha = if (focused) 1f else 0.5f),
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -194,24 +242,23 @@ fun TrackList(
     contentPadding: PaddingValues = PaddingValues(vertical = 8.dp),
     initialFocus: Boolean = false,
     showDownloadedBadge: Boolean = false,
+    /** Non-null ⇒ every row gets a delete button (从歌单移除 / 删除播放历史 …). */
+    onRemove: ((Track) -> Unit)? = null,
+    removeLabel: String = "删除",
     onPlay: (index: Int) -> Unit,
 ) {
-    // Only 我的列表 opts in. Collect once here (shared StateFlows) and derive the set of tracks
-    // that are downloaded AND whose file is actually present, so rows don't each subscribe.
-    // Reactive: a finished download, a removed download, or a play-time "文件缺失" discovery all
-    // update the badges. (A missing file drops out of this set → its ✓ disappears.)
-    val downloadedIds: Set<String> = if (showDownloadedBadge) {
-        val records by com.walkman.tv.ui.appContainer.downloadStore.records.collectAsState()
-        val missing by com.walkman.tv.ui.appContainer.downloadStore.missingDownloads.collectAsState()
-        remember(records, missing) {
-            records.values
-                .filter { it.status == com.walkman.tv.data.model.DownloadStatus.COMPLETED }
-                .map { it.track.id }
-                .filter { it !in missing }
-                .toSet()
-        }
-    } else {
-        emptySet()
+    // Collect once here (shared StateFlows) and derive the set of tracks that are downloaded AND
+    // whose file is actually present, so rows don't each subscribe. Reactive: a finished download,
+    // a removed download, or a play-time "文件缺失" discovery all update it. Used to hide the row's
+    // 下载 button everywhere; the ✓ badge only where [showDownloadedBadge] (我的列表) opts in.
+    val records by com.walkman.tv.ui.appContainer.downloadStore.records.collectAsState()
+    val missing by com.walkman.tv.ui.appContainer.downloadStore.missingDownloads.collectAsState()
+    val completedIds: Set<String> = remember(records, missing) {
+        records.values
+            .filter { it.status == com.walkman.tv.data.model.DownloadStatus.COMPLETED }
+            .map { it.track.id }
+            .filter { it !in missing }
+            .toSet()
     }
     val listState = rememberLazyListState()
     val firstFocus = remember { FocusRequester() }
@@ -258,9 +305,12 @@ fun TrackList(
         }
     }
 
-    // Long-press OK on any row opens the "add to playlist" picker. Owned here so every
-    // TrackList consumer (search / library / songlist / leaderboard / recommend) gets it for free.
+    // Row-end 下载 / ＋歌单 buttons open their dialogs. Owned here so every TrackList consumer
+    // (search / library / songlist / leaderboard / recommend) gets them.
     var pickerTrack by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Track?>(null) }
+    var downloadTrack by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Track?>(null) }
+
+    val rowKeys = remember(tracks) { uniqueKeys(tracks.map { it.id }) }
 
     LazyColumn(
         state = listState,
@@ -270,7 +320,7 @@ fun TrackList(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         contentPadding = contentPadding,
     ) {
-        itemsIndexed(tracks, key = { _, t -> t.id }) { index, track ->
+        itemsIndexed(tracks, key = { i, _ -> rowKeys[i] }) { index, track ->
             // Two FocusRequesters can collide on the same row (row 0 == lastClicked). Compose
             // doesn't error, but the later-applied one wins; layering them with .then() makes
             // the priority explicit (lastClicked > firstFocus).
@@ -286,8 +336,11 @@ fun TrackList(
                 index = index,
                 modifier = rowModifier,
                 nowPlaying = track.id == nowPlayingId,
-                downloaded = track.id in downloadedIds,
-                onLongClick = { pickerTrack = track },
+                downloaded = showDownloadedBadge && track.id in completedIds,
+                onDownload = if (track.canDownload && track.id !in completedIds) ({ downloadTrack = track }) else null,
+                onAddToPlaylist = { pickerTrack = track },
+                onRemove = onRemove?.let { remove -> { remove(track) } },
+                removeLabel = removeLabel,
                 onClick = {
                     lastClickedIndex = index
                     onPlay(index)
@@ -299,4 +352,11 @@ fun TrackList(
     pickerTrack?.let { t ->
         com.walkman.tv.ui.components.PlaylistPickerDialog(track = t, onDismiss = { pickerTrack = null })
     }
+    downloadTrack?.let { t ->
+        DownloadDialog(track = t, onDismiss = { downloadTrack = null })
+    }
 }
+
+/** Local-folder tracks are already files on the device — no 下载 button for them. */
+internal val Track.canDownload: Boolean
+    get() = !songmid.startsWith("lf://")

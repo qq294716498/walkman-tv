@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.walkman.tv.data.store.PlaybackSnapshot
 import com.walkman.tv.data.model.Quality
 import com.walkman.tv.data.model.Track
@@ -113,7 +114,11 @@ class PlaybackController(
         _audioLevel.value = level
     }
 
-    val player: ExoPlayer = buildPlayer(context.applicationContext, audioLevelProcessor)
+    /** 强制软件解码：只用系统自带的软件解码器（c2.android.* / OMX.google.*），绕开部分电视、盒子
+     *  厂商硬件解码器的闪退或无声问题。解码器在每次准备新歌时挑选，所以切换后从下一首开始生效。 */
+    @Volatile var forceSoftwareDecoding: Boolean = false
+
+    val player: ExoPlayer = buildPlayer(context.applicationContext, audioLevelProcessor, { forceSoftwareDecoding })
 
     private val appContext = context.applicationContext
 
@@ -165,6 +170,7 @@ class PlaybackController(
         fun buildPlayer(
             appContext: android.content.Context,
             levelProcessor: AudioLevelProcessor,
+            softwareOnly: () -> Boolean,
         ): ExoPlayer {
             val loadControl = DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
@@ -203,6 +209,13 @@ class PlaybackController(
                 }
             }
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                .setMediaCodecSelector { mimeType, secure, tunneling ->
+                    val all = MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, secure, tunneling)
+                    // 只管音频；MV 视频仍走硬解，软解 1080p 在盒子上会卡。没有可用的软件解码器时退回
+                    // 全部，宁可走硬解也别直接放不了。
+                    if (!softwareOnly() || !androidx.media3.common.MimeTypes.isAudio(mimeType)) all
+                    else all.filter { it.softwareOnly }.ifEmpty { all }
+                }
                 .setEnableAudioFloatOutput(true)
                 .setEnableAudioTrackPlaybackParams(true)
 
@@ -375,6 +388,11 @@ class PlaybackController(
         if (qualityCap == null) {
             lastAttemptedQuality = null
             networkRetryCount = 0
+            // Silence the previous song right away. Resolving can take a long time with a slow or
+            // dead source (every quality tier × 15s script timeout, then other-platform lookups),
+            // and the old track playing on under the new title looked like "切歌没成功".
+            runCatching { player.stop() }
+            _state.value = _state.value.copy(positionMs = 0)
         }
         val effectivePreferred = qualityCap ?: preferredQuality
         _state.value = _state.value.copy(index = index, resolving = true, error = null, warning = null, isMv = false)
@@ -471,9 +489,8 @@ class PlaybackController(
      * reaches READY (see the player listener). Guarded so a user skipping mid-delay wins.
      */
     private fun failAndAdvance(reason: String) {
-        // Stop the stale audio: playAt keeps the previous track playing while it resolves the
-        // next one (for gapless switching). If the target failed, that old track would otherwise
-        // keep playing — halt it now so a failed switch actually goes silent.
+        // Stop whatever is still loaded (e.g. a cascade retry's half-played attempt) so a failed
+        // track actually goes silent.
         runCatching { player.stop() }
         networkRetryCount = 0
         consecutiveFailures++

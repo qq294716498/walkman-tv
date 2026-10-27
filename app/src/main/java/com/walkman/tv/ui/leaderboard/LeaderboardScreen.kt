@@ -77,8 +77,9 @@ fun LeaderboardScreen(onOpenPlayer: () -> Unit, modifier: Modifier = Modifier) {
                 }
             }
             Spacer(Modifier.padding(top = 6.dp))
+            val uniqueBoards = remember(boards) { boards.distinctBy { it.id } }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(boards, key = { it.id }) { b ->
+                items(uniqueBoards, key = { it.id }) { b ->
                     TvFocusable(onClick = { selected = b }, modifier = Modifier.fillMaxWidth()) {
                         Text(
                             b.name,

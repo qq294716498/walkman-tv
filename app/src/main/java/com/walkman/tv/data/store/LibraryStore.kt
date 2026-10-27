@@ -2,6 +2,7 @@ package com.walkman.tv.data.store
 
 import android.content.Context
 import com.walkman.tv.data.model.Playlist
+import com.walkman.tv.data.model.PlaylistOrigin
 import com.walkman.tv.data.model.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,13 +66,18 @@ class LibraryStore(context: Context) {
         persist()
     }
 
+    suspend fun removeFromHistory(trackId: String) {
+        _history.value = _history.value.copy(tracks = _history.value.tracks.filter { it.id != trackId })
+        persist()
+    }
+
     suspend fun clearHistory() {
         _history.value = _history.value.copy(tracks = emptyList())
         persist()
     }
 
-    suspend fun createList(name: String): Playlist {
-        val list = Playlist(name = name)
+    suspend fun createList(name: String, origin: PlaylistOrigin? = null): Playlist {
+        val list = Playlist(name = name, origin = origin)
         _userLists.value = _userLists.value + list
         persist()
         return list
@@ -106,6 +112,23 @@ class LibraryStore(context: Context) {
                 else pl.copy(tracks = pl.tracks + fresh, updatedAt = System.currentTimeMillis())
             } else {
                 pl
+            }
+        }
+        persist()
+    }
+
+    /** Swap a user list's tracks wholesale (更新歌单 / 重新扫描). A non-null [origin] replaces the
+     *  list's origin too (更新歌单 stores the new platform snapshot). */
+    suspend fun replaceTracks(listId: String, tracks: List<Track>, origin: PlaylistOrigin? = null) {
+        _userLists.value = _userLists.value.map {
+            if (it.id == listId) {
+                it.copy(
+                    tracks = tracks.distinctBy { t -> t.id },
+                    origin = origin ?: it.origin,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            } else {
+                it
             }
         }
         persist()
