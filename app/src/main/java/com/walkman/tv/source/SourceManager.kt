@@ -82,7 +82,8 @@ class SourceManager(
             val scriptQs = ls.capabilities.sources[track.source]?.qualities?.toSet() ?: emptySet()
             val first = pickPlayQuality(preferred, track.qualities.toSet(), scriptQs)
             val cascade = qualityCascade(first, track.qualities.toSet(), scriptQs)
-            cascade.forEachIndexed { idx, q ->
+            for ((idx, q) in cascade.withIndex()) {
+                var timedOut = false
                 runCatching { resolveViaScript(track, q, ls) }
                     .onSuccess { url ->
                         val warn = when {
@@ -92,7 +93,13 @@ class SourceManager(
                         }
                         return ResolvedTrack(url, ResolveOrigin.Script(ls.script.name), q, warn)
                     }
-                    .onFailure { Log.d(TAG, "script '${ls.script.name}' @${q.key} failed: ${it.message}") }
+                    .onFailure {
+                        Log.d(TAG, "script '${ls.script.name}' @${q.key} failed: ${it.message}")
+                        timedOut = it is JsScriptRuntime.ScriptTimeoutException
+                    }
+                // An unresponsive script won't answer at a lower tier either; don't wait out the
+                // timeout once per tier (that was up to a minute of silence per song).
+                if (timedOut) break
             }
         }
 

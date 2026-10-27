@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -223,11 +225,21 @@ private fun HistoryTab(
     onOpenPlayer: () -> Unit,
     upFocus: FocusRequester,
 ) {
+    val scope = rememberCoroutineScope()
+    val clearFocus = remember { FocusRequester() }
+    var confirmClear by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(history.name, fontSize = 18.sp, color = AppColors.TextPrimary)
+        Spacer(Modifier.width(12.dp))
+        if (history.tracks.isNotEmpty()) ListActionHint()
         Spacer(Modifier.weight(1f))
         if (history.tracks.isNotEmpty()) {
-            TvPill(onClick = onClear, accent = AppColors.Danger) { Text("清空", fontSize = 12.sp) }
+            TvPill(
+                onClick = { confirmClear = true },
+                accent = AppColors.Danger,
+                focusRequester = clearFocus,
+                modifier = Modifier.focusProperties { up = upFocus },
+            ) { Text("清空", fontSize = 12.sp) }
         }
     }
     if (history.tracks.isEmpty()) {
@@ -240,14 +252,39 @@ private fun HistoryTab(
                 .fillMaxWidth()
                 .fillMaxHeight()
                 .focusProperties {
-                    exit = { dir -> if (dir == FocusDirection.Up) upFocus else FocusRequester.Default }
+                    // Up from the first row → 清空 (it sits right above the list), not the tabs.
+                    exit = { dir -> if (dir == FocusDirection.Up) clearFocus else FocusRequester.Default }
                 },
             nowPlayingId = nowId,
             showDownloadedBadge = true,
+            onRemove = { t -> scope.launch { appContainer.libraryStore.removeFromHistory(t.id) } },
+            removeLabel = "从播放历史删除",
         ) { idx ->
             playList(history.tracks, idx); onOpenPlayer()
         }
     }
+    if (confirmClear) {
+        com.walkman.tv.ui.components.ConfirmDialog(
+            title = "清空播放历史",
+            message = "确定清空全部 ${history.tracks.size} 条播放历史吗？",
+            confirmLabel = "清空",
+            onCancel = { confirmClear = false },
+            onConfirm = {
+                confirmClear = false
+                onClear()
+            },
+        )
+    }
+}
+
+/** 列表顶部的一行操作提示：行尾按钮。 */
+@Composable
+private fun ListActionHint() {
+    Text(
+        "选中歌曲后按右键可「下载 / 添加到歌单 / 删除」",
+        color = AppColors.TextMuted,
+        fontSize = 11.sp,
+    )
 }
 
 /** 4-column responsive grid of playlist covers + a "+ 新建歌单" tile at the end. */
@@ -376,6 +413,16 @@ private fun PlaylistDetailPane(
     val playFocus = remember { FocusRequester() }
     LaunchedEffect(playlist.id) { runCatching { playFocus.requestFocus() } }
     var showBatchDownload by remember { mutableStateOf(false) }
+    val refreshingIds by com.walkman.tv.playback.imports.SonglistImporter.refreshing.collectAsState()
+    val refreshing = playlist.id in refreshingIds
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
+    val rescanProgress by com.walkman.tv.playback.local.LocalPlaylistRescan.progress.collectAsState()
+    val scanning = rescanProgress[playlist.id]
+    val canRescan = remember(playlist.tracks) {
+        com.walkman.tv.playback.local.LocalPlaylistRescan
+            .rescannableFolders(playlist, appContainer.localMusicStore).isNotEmpty()
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 12.dp)) {
@@ -386,7 +433,13 @@ private fun PlaylistDetailPane(
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(playlist.name, color = AppColors.TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("${playlist.tracks.size} 首", color = AppColors.TextMuted, fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${playlist.tracks.size} 首", color = AppColors.TextMuted, fontSize = 12.sp)
+                    if (playlist.tracks.isNotEmpty()) {
+                        Spacer(Modifier.width(12.dp))
+                        ListActionHint()
+                    }
+                }
                 Spacer(Modifier.padding(top = 6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TvPill(
@@ -418,6 +471,54 @@ private fun PlaylistDetailPane(
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text("下载全部", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    if (playlist.origin != null) {
+                        TvPill(
+                            onClick = {
+                                // App-scoped so leaving the page doesn't cancel it; toast uses the
+                                // app context since the page may be gone by the time it finishes.
+                                com.walkman.tv.playback.imports.SonglistImporter.startRefresh(
+                                    playlist = playlist,
+                                    songlists = appContainer.songlists,
+                                    library = appContainer.libraryStore,
+                                    scope = appContainer.appScope,
+                                ) { msg ->
+                                    android.widget.Toast.makeText(appContext, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (refreshing) "更新中…" else "更新歌单", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    if (canRescan) {
+                        TvPill(
+                            onClick = {
+                                // App-scoped like 更新歌单: leaving the page doesn't abort the scan.
+                                com.walkman.tv.playback.local.LocalPlaylistRescan.start(
+                                    playlist = playlist,
+                                    local = appContainer.localMusicStore,
+                                    library = appContainer.libraryStore,
+                                    scope = appContainer.appScope,
+                                ) { msg ->
+                                    android.widget.Toast.makeText(appContext, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    if (scanning != null) "扫描中 ${(scanning * 100).toInt()}%" else "重新扫描",
+                                    fontSize = 12.sp,
+                                )
                             }
                         }
                     }
@@ -454,6 +555,13 @@ private fun PlaylistDetailPane(
                     },
                 nowPlayingId = nowId,
                 showDownloadedBadge = true,
+                onRemove = { t ->
+                    scope.launch {
+                        if (playlist.id == Playlist.LOVE) appContainer.libraryStore.toggleFavorite(t)
+                        else appContainer.libraryStore.removeFromList(playlist.id, t.id)
+                    }
+                },
+                removeLabel = "从歌单移除",
             ) { idx ->
                 playList(playlist.tracks, idx); onOpenPlayer()
             }
@@ -490,6 +598,8 @@ private fun DownloadedTab(
     val nowId = appContainer.playbackController.state.collectAsState().value.currentTrack?.id
     // COMPLETED downloads whose file is gone — stay listed here but flagged 文件缺失 + retry.
     val missing by appContainer.downloadStore.missingDownloads.collectAsState()
+    var pickerTrack by remember { mutableStateOf<com.walkman.tv.data.model.Track?>(null) }
+    var confirmDelete by remember { mutableStateOf<com.walkman.tv.data.model.Track?>(null) }
 
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier
@@ -541,12 +651,16 @@ private fun DownloadedTab(
                             nowPlaying = track.id == nowId,
                             onPlay = { onPlay(tracks, idx) },
                             onRetry = { appContainer.downloadCoordinator.redownload(track.id) },
+                            onRemove = { appContainer.downloadCoordinator.removeDownload(track.id) },
                         )
                     } else {
                         com.walkman.tv.ui.components.TrackRow(
                             track = track,
                             index = idx,
                             nowPlaying = track.id == nowId,
+                            onAddToPlaylist = { pickerTrack = track },
+                            onRemove = { confirmDelete = track },
+                            removeLabel = "删除下载",
                             onClick = { onPlay(tracks, idx) },
                         )
                     }
@@ -559,9 +673,24 @@ private fun DownloadedTab(
             }
         }) {
             item {
-                EmptyHint("还没有下载，去搜索 / 歌单里长按歌曲下载", Modifier.fillMaxSize())
+                EmptyHint("还没有下载，在歌曲上按右键选「下载」按钮即可下载", Modifier.fillMaxSize())
             }
         }
+    }
+
+    pickerTrack?.let { t ->
+        com.walkman.tv.ui.components.PlaylistPickerDialog(track = t, onDismiss = { pickerTrack = null })
+    }
+    confirmDelete?.let { t ->
+        com.walkman.tv.ui.components.ConfirmDialog(
+            title = "删除下载",
+            message = "确定删除「${t.name}」的下载文件吗？删除后需要重新下载才能离线播放。",
+            onCancel = { confirmDelete = null },
+            onConfirm = {
+                confirmDelete = null
+                appContainer.downloadCoordinator.removeDownload(t.id)
+            },
+        )
     }
 }
 
@@ -654,6 +783,7 @@ private fun MissingDownloadRow(
     nowPlaying: Boolean,
     onPlay: () -> Unit,
     onRetry: () -> Unit,
+    onRemove: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
@@ -706,5 +836,12 @@ private fun MissingDownloadRow(
             onClick = onRetry,
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
         ) { Text("重试", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+        Spacer(Modifier.width(8.dp))
+        // File is already gone, so no confirm — this only drops the stale record.
+        TvPill(
+            onClick = onRemove,
+            accent = AppColors.Danger,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        ) { Text("删除", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
     }
 }

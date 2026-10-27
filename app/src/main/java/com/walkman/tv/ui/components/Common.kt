@@ -136,3 +136,18 @@ fun SourceID.tint(): Color = when (this) {
     SourceID.MG -> AppColors.SourceMg
     SourceID.LOCAL -> AppColors.SourceLocal
 }
+
+/**
+ * Lazy-list keys must be unique, or Compose crashes ("Key … was already used") the moment the
+ * duplicate scrolls into view — and platform search/list APIs (酷狗 especially) do return the same
+ * song twice. Keeps the natural key for the first occurrence and suffixes repeats, so lists whose
+ * click handlers depend on the index (play queue = list order) can keep every row.
+ */
+fun uniqueKeys(keys: List<String>): List<String> {
+    val seen = HashMap<String, Int>()
+    return keys.map { k ->
+        val n = (seen[k] ?: 0) + 1
+        seen[k] = n
+        if (n == 1) k else "$k#$n"
+    }
+}

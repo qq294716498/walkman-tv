@@ -49,17 +49,40 @@ private fun Modifier.focusRequesterIfFirst(fr: FocusRequester): Modifier = this.
 
 /**
  * "Add this track to..." dialog. Shows every playlist (我喜欢的 + user-created) with a check
- * indicator showing whether [track] is already in it; tapping toggles membership. Bottom row
- * has a 新建歌单 affordance that opens [PlaylistNameDialog] inline.
+ * indicator showing whether [track] is in it; tapping toggles the check, and nothing is written
+ * until 完成 (取消 / back discards). Bottom row
+ * has a 新建歌单 affordance that opens [PlaylistNameDialog] inline. [showDownloadButton] adds a
+ * 下载 button — only the player uses it; track lists have their own row-end 下载 button.
  */
 @Composable
-fun PlaylistPickerDialog(track: Track, onDismiss: () -> Unit) {
+fun PlaylistPickerDialog(track: Track, onDismiss: () -> Unit, showDownloadButton: Boolean = false) {
     val scope = rememberCoroutineScope()
     val love by appContainer.libraryStore.love.collectAsState()
     val userLists by appContainer.libraryStore.userLists.collectAsState()
     val all = listOf(love) + userLists
     var showCreate by remember { mutableStateOf(false) }
     var showDownload by remember { mutableStateOf(false) }
+    // Pending membership: starts as the lists already holding [track]; rows only toggle this set.
+    var selected by remember(track.id) {
+        mutableStateOf(all.filter { pl -> pl.tracks.any { it.id == track.id } }.mapTo(HashSet()) { it.id }.toSet())
+    }
+    fun commit() {
+        val pending = selected
+        scope.launch {
+            val lib = appContainer.libraryStore
+            (listOf(lib.love.value) + lib.userLists.value).forEach { pl ->
+                val has = pl.tracks.any { it.id == track.id }
+                val want = pl.id in pending
+                if (has == want) return@forEach
+                when {
+                    pl.id == Playlist.LOVE -> lib.toggleFavorite(track)
+                    want -> lib.addToList(pl.id, track)
+                    else -> lib.removeFromList(pl.id, track.id)
+                }
+            }
+        }
+        onDismiss()
+    }
 
     // Focus the row most-likely useful first — the first playlist the track is *not* in (so
     // tapping just adds, no toggle dance), falling back to row 0.
@@ -101,24 +124,14 @@ fun PlaylistPickerDialog(track: Track, onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 items(all, key = { it.id }) { pl ->
-                    val inList = pl.tracks.any { it.id == track.id }
+                    val inList = pl.id in selected
                     val rowMod = if (pl.id == all.first().id) {
                         Modifier.fillMaxWidth().focusRequesterIfFirst(firstRowFocus)
                     } else {
                         Modifier.fillMaxWidth()
                     }
                     TvFocusable(
-                        onClick = {
-                            scope.launch {
-                                if (pl.id == Playlist.LOVE) {
-                                    appContainer.libraryStore.toggleFavorite(track)
-                                } else if (inList) {
-                                    appContainer.libraryStore.removeFromList(pl.id, track.id)
-                                } else {
-                                    appContainer.libraryStore.addToList(pl.id, track)
-                                }
-                            }
-                        },
+                        onClick = { selected = if (inList) selected - pl.id else selected + pl.id },
                         modifier = rowMod,
                     ) {
                         Row(
@@ -160,11 +173,13 @@ fun PlaylistPickerDialog(track: Track, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
             ) {
-                TvPill(
-                    onClick = { showDownload = true },
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                ) {
-                    Text("下载", fontSize = 13.sp)
+                if (showDownloadButton) {
+                    TvPill(
+                        onClick = { showDownload = true },
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    ) {
+                        Text("下载", fontSize = 13.sp)
+                    }
                 }
                 TvPill(
                     onClick = { showCreate = true },
@@ -178,6 +193,12 @@ fun PlaylistPickerDialog(track: Track, onDismiss: () -> Unit) {
                 }
                 TvPill(
                     onClick = onDismiss,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                ) {
+                    Text("取消", fontSize = 13.sp)
+                }
+                TvPill(
+                    onClick = { commit() },
                     selected = true,
                     contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
                 ) {
@@ -199,8 +220,8 @@ fun PlaylistPickerDialog(track: Track, onDismiss: () -> Unit) {
             onConfirm = { name ->
                 scope.launch {
                     val created = appContainer.libraryStore.createList(name)
-                    // Convenience: add the current track to the just-created playlist.
-                    appContainer.libraryStore.addToList(created.id, track)
+                    // Convenience: pre-check the just-created playlist (applied on 完成).
+                    selected = selected + created.id
                 }
                 showCreate = false
             },
@@ -224,14 +245,6 @@ fun PlaylistNameDialog(
 ) {
     var name by remember { mutableStateOf(initial) }
     var showQr by remember { mutableStateOf(false) }
-    val fieldFocus = remember { FocusRequester() }
-    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-
-    // Auto-focus the text field on open so the system IME can be invoked immediately.
-    LaunchedEffect(Unit) {
-        runCatching { fieldFocus.requestFocus() }
-        runCatching { keyboard?.show() }
-    }
     // QR-submitted names get pushed straight into the field.
     LaunchedEffect(Unit) {
         appContainer.events.qrPlaylistName.collect { received ->
@@ -256,47 +269,49 @@ fun PlaylistNameDialog(
 
             // Real editable text field — Compose brings up the system IME on focus, supporting
             // whichever Chinese / pinyin keyboard the user has installed.
-            androidx.compose.foundation.text.BasicTextField(
-                value = name,
-                onValueChange = { v -> if (v.length <= 24) name = v },
-                singleLine = true,
-                textStyle = androidx.compose.ui.text.TextStyle(
-                    color = AppColors.TextPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                ),
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.AccentGreen),
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    imeAction = androidx.compose.ui.text.input.ImeAction.Done,
-                ),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                    onDone = {
-                        val trimmed = name.trim()
-                        if (trimmed.isNotEmpty()) onConfirm(trimmed)
-                    },
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(AppColors.BgDeep)
-                    .padding(horizontal = 14.dp, vertical = 14.dp)
-                    .focusRequester(fieldFocus),
-                decorationBox = { inner ->
-                    Box {
-                        if (name.isEmpty()) {
-                            Text(
-                                "请输入歌单名（按确认键调出系统输入法）",
-                                color = AppColors.TextMuted,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+            TvTextFieldHost(modifier = Modifier.fillMaxWidth()) { fieldModifier ->
+                androidx.compose.foundation.text.BasicTextField(
+                    value = name,
+                    onValueChange = { v -> if (v.length <= 24) name = v },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = AppColors.TextPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(AppColors.AccentGreen),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onDone = {
+                            val trimmed = name.trim()
+                            if (trimmed.isNotEmpty()) onConfirm(trimmed)
+                        },
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(fieldModifier)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(AppColors.BgDeep)
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                    decorationBox = { inner ->
+                        Box {
+                            if (name.isEmpty()) {
+                                Text(
+                                    "请输入歌单名（按确认键调出系统输入法）",
+                                    color = AppColors.TextMuted,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            inner()
                         }
-                        inner()
-                    }
-                },
-            )
+                    },
+                )
+            }
             Spacer(Modifier.size(6.dp))
             Text(
                 "中文输入不便？点击「手机扫码输入」用手机键盘",

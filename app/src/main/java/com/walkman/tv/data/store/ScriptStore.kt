@@ -36,28 +36,44 @@ class ScriptStore(private val context: Context, private val sourceManager: Sourc
         list.filter { it.enabled }.forEach { sourceManager.load(it) }
     }
 
-    /** Import a raw script: parse its header, persist, and load it. */
-    suspend fun import(raw: String): Result<UserScript> = mutex.withLock {
+    /** Result of [import]: [replaced] is the older copy of the same script (same name + author)
+     *  that this import updated in place, or null when it was added as a new source. */
+    data class Imported(val script: UserScript, val replaced: UserScript?) {
+        val message: String
+            get() = if (replaced == null) "已添加音源：${script.name}"
+            else "已更新音源：${script.name}（替换了同名旧版本${replaced.version.takeIf { it.isNotBlank() }?.let { " v$it" } ?: ""}）"
+    }
+
+    /**
+     * Import a raw script: parse its header, load it, persist. Several sources can coexist; only
+     * a script with the same name AND author counts as a new version of an existing one and
+     * replaces it (keeping its place in the list). The old runtime is unloaded — previously it
+     * stayed loaded in [SourceManager] invisibly — and same-named scripts by different authors
+     * are kept side by side instead of silently overwriting each other.
+     */
+    suspend fun import(raw: String): Result<Imported> = mutex.withLock {
         val meta = parseHeader(raw)
-        val name = meta["name"] ?: "未命名脚本"
-        val existing = _scripts.value.firstOrNull { it.name == name }
         val script = UserScript(
-            id = existing?.id ?: java.util.UUID.randomUUID().toString(),
-            name = name,
+            name = meta["name"] ?: "未命名脚本",
             description = meta["description"] ?: "",
             version = meta["version"] ?: "",
             author = meta["author"] ?: "",
             homepage = meta["homepage"] ?: "",
             rawScript = raw,
-            importedAt = existing?.importedAt ?: System.currentTimeMillis(),
             enabled = true,
         )
+        val old = _scripts.value.firstOrNull { it.name == script.name && it.author == script.author }
         val result = sourceManager.load(script)
         result.fold(
             onSuccess = {
-                _scripts.value = _scripts.value.filter { it.name != script.name } + script
+                if (old != null) {
+                    sourceManager.unload(old.id)
+                    _scripts.value = _scripts.value.map { if (it.id == old.id) script else it }
+                } else {
+                    _scripts.value = _scripts.value + script
+                }
                 persist()
-                Result.success(script)
+                Result.success(Imported(script, old))
             },
             onFailure = { Result.failure(it) },
         )

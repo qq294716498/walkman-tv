@@ -49,7 +49,10 @@ class JsScriptRuntime(
     private val pending = ConcurrentHashMap<String, CompletableDeferred<Any?>>()
     private var initDeferred: CompletableDeferred<ScriptCapabilities>? = null
 
-    class ScriptException(message: String) : Exception(message)
+    open class ScriptException(message: String) : Exception(message)
+    /** The script never answered (vs. answered with an error) — retrying it at another quality
+     *  tier would just wait out the timeout again. */
+    class ScriptTimeoutException(message: String) : ScriptException(message)
 
     /** Create the context, evaluate preload + script, and wait for the script to report `init`. */
     suspend fun load(timeoutMs: Long = 10_000): ScriptCapabilities {
@@ -101,7 +104,7 @@ class JsScriptRuntime(
         return try {
             withTimeout(timeoutMs) { deferred.await() }
         } catch (e: TimeoutCancellationException) {
-            throw ScriptException("脚本调用超时")
+            throw ScriptTimeoutException("脚本调用超时")
         } finally {
             pending.remove(requestKey)
         }

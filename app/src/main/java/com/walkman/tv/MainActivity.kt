@@ -39,6 +39,11 @@ class MainActivity : ComponentActivity() {
      * its three-line button to KEYCODE_MENU, but other vendors send KEYCODE_TV_CONTENTS_MENU
      * or KEYCODE_BUTTON_MODE for the same physical key.
      */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (App.container.events.keyInterceptor?.invoke(event) == true) return true
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MENU,

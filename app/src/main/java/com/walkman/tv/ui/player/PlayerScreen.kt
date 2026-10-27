@@ -96,6 +96,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
   val context = androidx.compose.ui.platform.LocalContext.current
   var showMvQueue by remember { mutableStateOf(false) }
   val playFocus = remember { FocusRequester() }
+  val progressFocus = remember { FocusRequester() }
 
   val track = state.currentTrack
 
@@ -111,6 +112,44 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
   val wantsFocus = !state.isMv && !showMvQueue && !showEqDialog && !showPicker
   LaunchedEffect(wantsFocus) {
     if (wantsFocus) tryRequestFocus(playFocus)
+  }
+
+  // 播放控件自动隐藏：空闲 5 秒隐藏进度条 + 控制栏。隐藏后 Compose 内没有焦点，按键只会落到
+  // Activity，所以在 Activity.dispatchKeyEvent 层拦截：方向键 / 确认键只负责唤出控件（吞掉该次
+  // 按键，避免确认键误触暂停）；返回、菜单、媒体键照常放行。
+  var controlsVisible by remember { mutableStateOf(true) }
+  var idleTick by remember { mutableStateOf(0) }
+  val autoHideActive = settings.autoHidePlayerControls && wantsFocus
+  LaunchedEffect(autoHideActive, controlsVisible, idleTick) {
+    if (!autoHideActive) {
+      controlsVisible = true
+      return@LaunchedEffect
+    }
+    if (controlsVisible) {
+      delay(AUTO_HIDE_MS)
+      controlsVisible = false
+    }
+  }
+  androidx.compose.runtime.DisposableEffect(autoHideActive) {
+    val events = appContainer.events
+    // 唤出控件那一次按键的后续（长按重复 + 抬起）也吞掉，否则抬起时焦点已在播放键上会触发暂停。
+    var wakeKey: Int? = null
+    val interceptor: (android.view.KeyEvent) -> Boolean = interceptor@{ e ->
+      idleTick++
+      if (e.keyCode == wakeKey) {
+        if (e.action == android.view.KeyEvent.ACTION_UP) wakeKey = null
+        return@interceptor true
+      }
+      if (controlsVisible || e.keyCode !in WAKE_KEYS) return@interceptor false
+      if (e.action == android.view.KeyEvent.ACTION_DOWN) {
+        wakeKey = e.keyCode
+        controlsVisible = true
+        scope.launch { tryRequestFocus(playFocus) }
+      }
+      true
+    }
+    if (autoHideActive) events.keyInterceptor = interceptor
+    onDispose { if (events.keyInterceptor === interceptor) events.keyInterceptor = null }
   }
 
   BackHandler(enabled = true) {
@@ -175,11 +214,24 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
           )
+          // 播放调试信息（设置里开启）：获取地址 / 失败自动跳过 / 换源降级，排查音源问题用。
+          val status = state.error ?: (if (state.resolving) "正在获取播放地址…" else state.warning)
+          if (settings.showDebugInfo && status != null) {
+            Text(
+              status,
+              color = if (state.error != null) AppColors.Danger else AppColors.Warning,
+              fontSize = 12.sp,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.padding(top = 4.dp),
+            )
+          }
           Spacer(Modifier.height(18.dp))
           LyricPane(
             lyrics,
             state.positionMs,
             lyricSize = lyricSize,
+            showTranslation = settings.showLyricTranslation,
             modifier = Modifier.fillMaxWidth().weight(1f),
           )
         }
@@ -194,6 +246,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
           VinylDisc(
             picURL = track.picURL,
             isPlaying = state.isPlaying,
+            palette = vinylPalette(settings.vinylColor),
             modifier = Modifier.fillMaxSize()
           )
         }
@@ -206,51 +259,62 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
         level = audioLevel,
         modifier = Modifier.fillMaxWidth().height(40.dp),
       )
-      Spacer(Modifier.height(6.dp))
-      ProgressBar(state.positionMs, state.durationMs, onSeek = { controller.seekTo(it) })
-      Spacer(Modifier.height(14.dp))
-      val audioSpec by controller.audioSpec.collectAsState()
-      TransportBar(
-        state = state,
-        love = love,
-        audioSpec = audioSpec,
-        onTogglePlay = { controller.togglePlay() },
-        onPrev = { controller.prev() },
-        onNext = { controller.next() },
-        onCycleRepeat = {
-          val mode = state.repeatMode
-          val shuffle = state.shuffle
-          when {
-            mode == RepeatMode.ALL && !shuffle -> {
-              controller.setRepeatMode(RepeatMode.ONE)
-            }
-            mode == RepeatMode.ONE && !shuffle -> {
-              controller.setRepeatMode(RepeatMode.ALL)
-              if (!state.shuffle) controller.toggleShuffle()
-            }
-            else -> {
-              controller.setRepeatMode(RepeatMode.ALL)
-              if (state.shuffle) controller.toggleShuffle()
-            }
-          }
-        },
-        onToggleFav = { showPicker = true },
-        onMv = {
-          android.widget.Toast.makeText(context, "正在获取 MV…", android.widget.Toast.LENGTH_SHORT).show()
-          scope.launch {
-            val info = runCatching { appContainer.mvResolver.getMvUrl(track) }.getOrNull()
-            val url = info?.bestUrl()
-            if (url != null) {
-              controller.playMvUrl(url)
-            } else {
-              android.widget.Toast.makeText(context, "暂无可用 MV", android.widget.Toast.LENGTH_SHORT).show()
-            }
-          }
-        },
-        onShowQueue = { showMvQueue = true },
-        onTuneClick = { showEqDialog = true },
-        playFocusRequester = playFocus,
-      )
+      AnimatedVisibility(visible = controlsVisible) {
+        Column {
+          Spacer(Modifier.height(6.dp))
+          ProgressBar(
+            state.positionMs,
+            state.durationMs,
+            onSeek = { controller.seekTo(it) },
+            focusRequester = progressFocus,
+            downFocusRequester = playFocus,
+          )
+          Spacer(Modifier.height(14.dp))
+          val audioSpec by controller.audioSpec.collectAsState()
+          TransportBar(
+            state = state,
+            love = love,
+            audioSpec = audioSpec,
+            onTogglePlay = { controller.togglePlay() },
+            onPrev = { controller.prev() },
+            onNext = { controller.next() },
+            onCycleRepeat = {
+              val mode = state.repeatMode
+              val shuffle = state.shuffle
+              when {
+                mode == RepeatMode.ALL && !shuffle -> {
+                  controller.setRepeatMode(RepeatMode.ONE)
+                }
+                mode == RepeatMode.ONE && !shuffle -> {
+                  controller.setRepeatMode(RepeatMode.ALL)
+                  if (!state.shuffle) controller.toggleShuffle()
+                }
+                else -> {
+                  controller.setRepeatMode(RepeatMode.ALL)
+                  if (state.shuffle) controller.toggleShuffle()
+                }
+              }
+            },
+            onToggleFav = { showPicker = true },
+            onMv = {
+              android.widget.Toast.makeText(context, "正在获取 MV…", android.widget.Toast.LENGTH_SHORT).show()
+              scope.launch {
+                val info = runCatching { appContainer.mvResolver.getMvUrl(track) }.getOrNull()
+                val url = info?.bestUrl()
+                if (url != null) {
+                  controller.playMvUrl(url)
+                } else {
+                  android.widget.Toast.makeText(context, "暂无可用 MV", android.widget.Toast.LENGTH_SHORT).show()
+                }
+              }
+            },
+            onShowQueue = { showMvQueue = true },
+            onTuneClick = { showEqDialog = true },
+            playFocusRequester = playFocus,
+            progressFocusRequester = progressFocus,
+          )
+        }
+      }
     }
 
     MvQueueDrawer(
@@ -268,6 +332,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
       com.walkman.tv.ui.components.PlaylistPickerDialog(
         track = track,
         onDismiss = { showPicker = false },
+        showDownloadButton = true,
       )
     }
   }
@@ -276,7 +341,12 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
 // ============== Vinyl disc (去除了中心小黑洞，封面直达圆心) =====================================================================
 
 @Composable
-private fun VinylDisc(picURL: String?, isPlaying: Boolean, modifier: Modifier = Modifier) {
+private fun VinylDisc(
+  picURL: String?,
+  isPlaying: Boolean,
+  palette: VinylPalette,
+  modifier: Modifier = Modifier,
+) {
   val rotation = remember { Animatable(0f) }
   LaunchedEffect(isPlaying) {
     if (isPlaying) {
@@ -291,7 +361,7 @@ private fun VinylDisc(picURL: String?, isPlaying: Boolean, modifier: Modifier = 
   val circle = androidx.compose.foundation.shape.CircleShape
 
   Box(modifier = modifier.aspectRatio(1f), contentAlignment = Alignment.Center) {
-    // 1) 外圈绿光晕 (填满全尺寸)
+    // 1) 外圈光晕（颜色随黑胶配色） (填满全尺寸)
     Box(
       modifier = Modifier
         .fillMaxSize()
@@ -299,9 +369,9 @@ private fun VinylDisc(picURL: String?, isPlaying: Boolean, modifier: Modifier = 
         .background(
           Brush.radialGradient(
             colors = listOf(
-              AppColors.AccentGreen.copy(alpha = 0.55f),
-              AppColors.AccentGreen.copy(alpha = 0.20f),
-              AppColors.AccentGreen.copy(alpha = 0.00f),
+              palette.glow.copy(alpha = 0.55f * palette.glowStrength),
+              palette.glow.copy(alpha = 0.20f * palette.glowStrength),
+              palette.glow.copy(alpha = 0.00f),
             ),
           ),
         ),
@@ -314,7 +384,7 @@ private fun VinylDisc(picURL: String?, isPlaying: Boolean, modifier: Modifier = 
         .graphicsLayer { rotationZ = rotation.value },
       contentAlignment = Alignment.Center,
     ) {
-      VinylGrooves(modifier = Modifier.fillMaxSize())
+      VinylGrooves(palette, modifier = Modifier.fillMaxSize())
 
       // 3) 内圈专辑封面 (比例计算：220 / 300 ≈ 73.33%)
       // 优化：封面图现在无缝延伸到轴心最中心，不再被黑色块覆盖
@@ -333,7 +403,7 @@ private fun VinylDisc(picURL: String?, isPlaying: Boolean, modifier: Modifier = 
 }
 
 @Composable
-private fun VinylGrooves(modifier: Modifier) {
+private fun VinylGrooves(palette: VinylPalette, modifier: Modifier) {
   androidx.compose.foundation.Canvas(modifier = modifier.aspectRatio(1f)) {
     val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
     val outerRadius = size.minDimension / 2f
@@ -341,15 +411,11 @@ private fun VinylGrooves(modifier: Modifier) {
 
     val baseScale = outerRadius / 150.dp.toPx()
 
-    drawCircle(color = Color(0xFF0E2818), radius = outerRadius, center = center)
+    drawCircle(color = palette.base, radius = outerRadius, center = center)
 
     drawCircle(
       brush = Brush.radialGradient(
-        colors = listOf(
-          Color(0xFF0A1F12),
-          Color(0xFF112F1C),
-          Color(0xFF1B4528),
-        ),
+        colors = palette.body,
         center = center,
         radius = outerRadius,
       ),
@@ -372,19 +438,63 @@ private fun VinylGrooves(modifier: Modifier) {
     }
 
     drawCircle(
-      color = AppColors.AccentGreen.copy(alpha = 0.45f),
+      color = palette.rim.copy(alpha = 0.45f),
       radius = innerRadius + 2.dp.toPx() * baseScale,
       center = center,
       style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() * baseScale),
     )
 
     drawCircle(
-      color = AppColors.AccentGreen.copy(alpha = 0.55f),
+      color = palette.rim.copy(alpha = 0.55f),
       radius = outerRadius - 1.dp.toPx() * baseScale,
       center = center,
       style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() * baseScale),
     )
   }
+}
+
+/** 黑胶配色：盘面底色 / 径向渐变 / 内外描边 / 外圈光晕。GREEN 即原版配色。 */
+private class VinylPalette(
+  val base: Color,
+  val body: List<Color>,
+  val rim: Color,
+  val glow: Color,
+  val glowStrength: Float = 1f,
+)
+
+private fun vinylPalette(color: com.walkman.tv.data.store.VinylColor): VinylPalette = when (color) {
+  com.walkman.tv.data.store.VinylColor.GREEN -> VinylPalette(
+    base = Color(0xFF0E2818),
+    body = listOf(Color(0xFF0A1F12), Color(0xFF112F1C), Color(0xFF1B4528)),
+    rim = AppColors.AccentGreen,
+    glow = AppColors.AccentGreen,
+  )
+  // 真黑胶：近黑盘面 + 淡灰描边，光晕压得很弱，避免发灰
+  com.walkman.tv.data.store.VinylColor.BLACK -> VinylPalette(
+    base = Color(0xFF0B0B0B),
+    body = listOf(Color(0xFF080808), Color(0xFF141414), Color(0xFF242424)),
+    rim = Color(0xFF9A9A9A),
+    glow = Color(0xFFFFFFFF),
+    glowStrength = 0.25f,
+  )
+  com.walkman.tv.data.store.VinylColor.RED -> VinylPalette(
+    base = Color(0xFF2A0D12),
+    body = listOf(Color(0xFF1E080C), Color(0xFF341018), Color(0xFF4E1A24)),
+    rim = Color(0xFFE0566B),
+    glow = Color(0xFFE0566B),
+  )
+  com.walkman.tv.data.store.VinylColor.BLUE -> VinylPalette(
+    base = Color(0xFF0C1A2E),
+    body = listOf(Color(0xFF081222), Color(0xFF102440), Color(0xFF1A365C)),
+    rim = Color(0xFF5B9BFF),
+    glow = Color(0xFF5B9BFF),
+  )
+  com.walkman.tv.data.store.VinylColor.GOLD -> VinylPalette(
+    base = Color(0xFF2A1E08),
+    body = listOf(Color(0xFF1E1505), Color(0xFF35260A), Color(0xFF4F3A12)),
+    rim = Color(0xFFE8B04A),
+    glow = Color(0xFFE8B04A),
+  )
 }
 
 // ============== 下方其余交互逻辑组件保持完全不变 =================================================================
@@ -470,16 +580,31 @@ private fun TransportBar(
   onShowQueue: () -> Unit,
   onTuneClick: () -> Unit,
   playFocusRequester: FocusRequester? = null,
+  progressFocusRequester: FocusRequester? = null,
 ) {
   val track = state.currentTrack
   val faved = track?.let { t -> love.tracks.any { it.id == t.id } } ?: false
+  val tuneFocus = remember { FocusRequester() }
   val qualityFocus = remember { FocusRequester() }
   val repeatFocus = remember { FocusRequester() }
-  val mvFocus = remember { FocusRequester() }
+  val prevFocus = remember { FocusRequester() }
+  val playFocus = playFocusRequester ?: remember { FocusRequester() }
+  val nextFocus = remember { FocusRequester() }
   val faveFocus = remember { FocusRequester() }
+  val mvFocus = remember { FocusRequester() }
+  val queueFocus = remember { FocusRequester() }
+  // 播放页盖在主界面上，主界面的控件仍在下面参与焦点查找。交给系统按位置找的话，会找到被盖住的
+  // 控件（比如推荐页迷你播放条的上一曲，#24），所以控制栏每个方向都写死。
+  // 音质标签只在成功播放过后才有（第一首就失败时没有），两侧的跳转按有无标签切换。
   val hasQuality = state.quality != null
 
-  Box(modifier = Modifier.fillMaxWidth()) {
+  // 向下拦住（控制栏在最底部），向上统一回进度条。
+  Box(
+    modifier = Modifier.fillMaxWidth().focusProperties {
+      down = FocusRequester.Cancel
+      if (progressFocusRequester != null) up = progressFocusRequester
+    },
+  ) {
     Row(
       modifier = Modifier.align(Alignment.CenterStart),
       verticalAlignment = Alignment.CenterVertically,
@@ -488,7 +613,11 @@ private fun TransportBar(
       IconPill(
         Icons.Filled.Tune,
         onClick = onTuneClick,
-        modifier = Modifier.focusProperties { left = FocusRequester.Cancel },
+        focusRequester = tuneFocus,
+        modifier = Modifier.focusProperties {
+          left = FocusRequester.Cancel
+          right = if (hasQuality) qualityFocus else repeatFocus
+        },
       )
       val displayed = com.walkman.tv.playback.displayQuality(state.quality, audioSpec)
       displayed?.let { q ->
@@ -496,7 +625,10 @@ private fun TransportBar(
           onClick = { },
           selected = true,
           focusRequester = qualityFocus,
-          modifier = Modifier.focusProperties { right = repeatFocus },
+          modifier = Modifier.focusProperties {
+            left = tuneFocus
+            right = repeatFocus
+          },
           contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp),
         ) {
           Text(q.badgeLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -526,22 +658,48 @@ private fun TransportBar(
         active = true,
         focusRequester = repeatFocus,
         onClick = onCycleRepeat,
-        modifier = if (hasQuality) Modifier.focusProperties { left = qualityFocus } else Modifier,
+        modifier = Modifier.focusProperties {
+          left = if (hasQuality) qualityFocus else tuneFocus
+          right = prevFocus
+        },
       )
-      IconPill(Icons.Filled.SkipPrevious, onClick = onPrev)
+      IconPill(
+        Icons.Filled.SkipPrevious,
+        focusRequester = prevFocus,
+        onClick = onPrev,
+        modifier = Modifier.focusProperties {
+          left = repeatFocus
+          right = playFocus
+        },
+      )
       IconPill(
         if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
         large = true,
-        focusRequester = playFocusRequester,
+        focusRequester = playFocus,
         onClick = onTogglePlay,
+        modifier = Modifier.focusProperties {
+          left = prevFocus
+          right = nextFocus
+        },
       )
-      IconPill(Icons.Filled.SkipNext, onClick = onNext)
+      IconPill(
+        Icons.Filled.SkipNext,
+        focusRequester = nextFocus,
+        onClick = onNext,
+        modifier = Modifier.focusProperties {
+          left = playFocus
+          right = faveFocus
+        },
+      )
       IconPill(
         if (faved) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
         active = faved,
         focusRequester = faveFocus,
         onClick = onToggleFav,
-        modifier = Modifier.focusProperties { right = mvFocus },
+        modifier = Modifier.focusProperties {
+          left = nextFocus
+          right = mvFocus
+        },
       )
     }
     Row(
@@ -552,20 +710,38 @@ private fun TransportBar(
       TvPill(
         onClick = onMv,
         focusRequester = mvFocus,
-        modifier = Modifier.focusProperties { left = faveFocus },
+        modifier = Modifier.focusProperties {
+          left = faveFocus
+          right = queueFocus
+        },
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp),
       ) {
         Text("MV", fontSize = 12.sp, fontWeight = FontWeight.Bold)
       }
       IconPill(
         Icons.AutoMirrored.Filled.QueueMusic,
+        focusRequester = queueFocus,
         onClick = onShowQueue,
-        modifier = Modifier.focusProperties { right = FocusRequester.Cancel },
+        modifier = Modifier.focusProperties {
+          left = mvFocus
+          right = FocusRequester.Cancel
+        },
       )
     }
   }
 }
 
+private const val AUTO_HIDE_MS = 5_000L
+/** 控件隐藏时用来唤出控件的键：方向键 + 确认键。 */
+private val WAKE_KEYS = setOf(
+  android.view.KeyEvent.KEYCODE_DPAD_UP,
+  android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+  android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+  android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+  android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+  android.view.KeyEvent.KEYCODE_ENTER,
+  android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+)
 private const val SCRUB_TAP_MS = 220L
 private const val SCRUB_TAP_STEP_MS = 5_000L
 private const val SCRUB_BASE_PER_SEC = 6_000f
@@ -573,8 +749,15 @@ private const val SCRUB_MAX_PER_SEC = 60_000f
 private const val SCRUB_ACCEL_PER_SEC2 = 40_000f
 private const val SCRUB_RELEASE_TIMEOUT_MS = 1_000L
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-private fun ProgressBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
+private fun ProgressBar(
+  positionMs: Long,
+  durationMs: Long,
+  onSeek: (Long) -> Unit,
+  focusRequester: FocusRequester,
+  downFocusRequester: FocusRequester,
+) {
   var focused by remember { mutableStateOf(false) }
   var scrubDir by remember { mutableStateOf(0) }
   var previewMs by remember { mutableStateOf(0L) }
@@ -614,6 +797,13 @@ private fun ProgressBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Un
   Column(
     modifier = Modifier
       .fillMaxWidth()
+      // 播放页是盖在主界面上的浮层，进度条上方没有可聚焦控件；不拦住的话再按上键焦点会
+      // 穿到被盖住的顶部导航，之后怎么按都回不来。
+      .focusRequester(focusRequester)
+      .focusProperties {
+        up = FocusRequester.Cancel
+        down = downFocusRequester
+      }
       .onFocusChanged { fs ->
         focused = fs.isFocused
         if (!fs.isFocused && scrubDir != 0) commit()
@@ -675,6 +865,7 @@ private fun LyricPane(
   lyrics: List<com.walkman.tv.playback.LyricLine>,
   positionMs: Long,
   lyricSize: com.walkman.tv.data.store.LyricSize,
+  showTranslation: Boolean,
   modifier: Modifier = Modifier,
 ) {
   if (lyrics.isEmpty()) {
@@ -702,15 +893,18 @@ private fun LyricPane(
           line.text,
           color = if (isActive) AppColors.LyricActive else AppColors.TextSecondary,
           fontSize = if (isActive) lyricSize.activeSp.sp else lyricSize.inactiveSp.sp,
+          // 显式行高：默认行高跟不上大字号，长歌词换行时上下两行会重叠（#21）。
+          lineHeight = ((if (isActive) lyricSize.activeSp else lyricSize.inactiveSp) * 1.3f).sp,
           fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
           textAlign = TextAlign.Center,
           modifier = Modifier.alpha(a),
         )
-        line.translation?.let {
+        line.translation?.takeIf { showTranslation }?.let {
           Text(
             it,
             color = if (isActive) AppColors.LyricActive.copy(alpha = 0.7f) else AppColors.TextMuted,
             fontSize = lyricSize.translationSp.sp,
+            lineHeight = (lyricSize.translationSp * 1.3f).sp,
             textAlign = TextAlign.Center,
             modifier = Modifier.alpha(a),
           )
@@ -788,12 +982,13 @@ private fun MvQueueDrawer(
           fontWeight = FontWeight.Bold,
         )
         Spacer(Modifier.height(10.dp))
+        val rowKeys = remember(queue) { com.walkman.tv.ui.components.uniqueKeys(queue.map { it.id }) }
         LazyColumn(
           state = listState,
           verticalArrangement = Arrangement.spacedBy(6.dp),
           modifier = Modifier.fillMaxSize(),
         ) {
-          itemsIndexed(queue, key = { _, t -> t.id }) { idx, track ->
+          itemsIndexed(queue, key = { i, _ -> rowKeys[i] }) { idx, track ->
             val isCurrent = idx == currentIndex
             QueueRow(
               track = track,

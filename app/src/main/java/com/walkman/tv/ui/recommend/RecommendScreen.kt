@@ -10,6 +10,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
@@ -868,7 +871,21 @@ private fun HeroCarousel(heroes: List<HeroItem>, onSelect: (HeroItem) -> Unit) {
       .onFocusChanged { hasFocus = it.hasFocus },
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    HeroBanner(item = current, focusRequester = bannerFocus, onClick = { onSelect(current) })
+    HeroBanner(
+      item = current,
+      focusRequester = bannerFocus,
+      onClick = { onSelect(current) },
+      // Left / Right on the focused banner flips slides (#19). Left on the first slide falls
+      // through so the user can still reach the nav rail.
+      modifier = Modifier.onPreviewKeyEvent { e ->
+        if (heroes.size < 2 || e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        when (e.key) {
+          androidx.compose.ui.input.key.Key.DirectionRight -> { index = (index + 1) % heroes.size; true }
+          androidx.compose.ui.input.key.Key.DirectionLeft -> if (index > 0) { index -= 1; true } else false
+          else -> false
+        }
+      },
+    )
     if (heroes.size > 1) {
       Row(
         modifier = Modifier.fillMaxWidth(),
@@ -902,12 +919,13 @@ private fun HeroBanner(
   item: HeroItem,
   focusRequester: androidx.compose.ui.focus.FocusRequester,
   onClick: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
   val tint = item.source.tintColor()
   val accentEnd = tint.copy(alpha = 0.65f)
   TvFocusable(
     onClick = onClick,
-    modifier = Modifier
+    modifier = modifier
       .fillMaxWidth()
       .height(260.dp)
       .focusRequester(focusRequester),
@@ -938,6 +956,9 @@ private fun HeroBanner(
             item.songlist.name,
             color = Color.White,
             fontSize = 30.sp,
+            // Explicit: the inherited TV text style's line height is sized for body text, so a
+            // wrapped 30sp title overlapped its second line.
+            lineHeight = 38.sp,
             fontWeight = FontWeight.Black,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -996,12 +1017,13 @@ private fun HeroBanner(
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun SonglistRow(items: List<com.walkman.tv.data.model.SonglistInfo>, onSelect: (com.walkman.tv.data.model.SonglistInfo) -> Unit) {
+  val unique = androidx.compose.runtime.remember(items) { items.distinctBy { "${it.source.key}_${it.id}" } }
   androidx.compose.foundation.lazy.LazyRow(
     modifier = Modifier.focusRestorer(),
     horizontalArrangement = Arrangement.spacedBy(14.dp),
     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp),
   ) {
-    items(items, key = { "${it.source.key}_${it.id}" }) { info ->
+    items(unique, key = { "${it.source.key}_${it.id}" }) { info ->
       AlbumCard(
         picURL = info.picURL,
         title = info.name,
@@ -1016,12 +1038,13 @@ private fun SonglistRow(items: List<com.walkman.tv.data.model.SonglistInfo>, onS
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun BoardRow(items: List<com.walkman.tv.data.model.BoardInfo>, onSelect: (com.walkman.tv.data.model.BoardInfo) -> Unit) {
+  val unique = androidx.compose.runtime.remember(items) { items.distinctBy { "${it.source.key}_${it.id}" } }
   androidx.compose.foundation.lazy.LazyRow(
     modifier = Modifier.focusRestorer(),
     horizontalArrangement = Arrangement.spacedBy(14.dp),
     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp),
   ) {
-    items(items, key = { "${it.source.key}_${it.id}" }) { board ->
+    items(unique, key = { "${it.source.key}_${it.id}" }) { board ->
       AlbumCard(
         picURL = board.picURL,
         title = board.name,
