@@ -1,6 +1,6 @@
 name: Release
 
-# Build release APKs on v* tags, and publish v1.4.1 once this workflow lands on main.
+# Build release APKs on v* tags, and publish v1.4.2 once this workflow lands on main.
 #
 # Signing (optional): set these repo Secrets to sign with your release key. If absent, the
 # build falls back to debug signing (installable, but only for testing — don't ship it).
@@ -70,7 +70,7 @@ jobs:
       - name: Build release APKs
         run: |
           chmod +x ./gradlew
-          ./gradlew testDebugUnitTest assembleRelease --no-daemon --stacktrace
+          ./gradlew testDebugUnitTest testUserApiPreload assembleRelease --no-daemon --stacktrace
 
       - name: Upload APKs to the GitHub Release
         uses: softprops/action-gh-release@v2
