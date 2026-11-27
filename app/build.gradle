@@ -36,8 +36,13 @@ android {
         abi {
             enable true
             reset()
-            include "armeabi-v7a", "arm64-v8a", "x86_64"
-            universalApk true
+            if (project.hasProperty("debugArm64Only")) {
+                include "arm64-v8a"
+                universalApk false
+            } else {
+                include "armeabi-v7a", "arm64-v8a", "x86_64"
+                universalApk true
+            }
         }
     }
 
