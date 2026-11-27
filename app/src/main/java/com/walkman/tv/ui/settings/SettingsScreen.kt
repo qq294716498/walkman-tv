@@ -248,7 +248,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         }
 
         Section("歌词样式") {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 com.walkman.tv.data.store.LyricStyle.entries.forEach { style ->
                     TvPill(
                         onClick = { scope.launch { appContainer.settingsStore.update { it.copy(lyricStyle = style) } } },
@@ -303,6 +306,16 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         }
 
         Section("播放界面") {
+            ToggleRow("AI 氛围主题（随歌智能配色）", settings.aiThemeEnabled) {
+                scope.launch { appContainer.settingsStore.update { it.copy(aiThemeEnabled = !it.aiThemeEnabled) } }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "根据当前歌曲封面主色与歌词情绪自动生成沉浸式氛围背景与高亮配色，零额外网络延迟。",
+                color = AppColors.TextMuted,
+                fontSize = 11.sp,
+            )
+            Spacer(Modifier.height(12.dp))
             ToggleRow("播放控件自动隐藏", settings.autoHidePlayerControls) {
                 scope.launch { appContainer.settingsStore.update { it.copy(autoHidePlayerControls = !it.autoHidePlayerControls) } }
             }

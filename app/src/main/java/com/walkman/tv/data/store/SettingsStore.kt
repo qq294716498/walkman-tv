@@ -47,15 +47,16 @@ enum class ThemeColor(
     CYAN("青碧", 0xFF2DD4BF, 0xFF5EEAD4, 0xFF14B8A6),
 }
 
-/** Lyric rendering style in PlayerScreen. CLASSIC is the original centered list;
- *  APPLE is an Apple Music-like (AMLL) style with left-aligned bold typography, spring scale,
- *  edge fade, interlude dots, and smooth left-to-right active-line sweep;
- *  FOLIA is a Folia/Monet-inspired luminous glow lyric style optimised for Android TV. */
+/** Lyric rendering styles in PlayerScreen (TV-optimised native Compose). */
 @Serializable
 enum class LyricStyle(val label: String) {
     CLASSIC("经典"),
     APPLE("类苹果 (AMLL)"),
     FOLIA("流光 (Folia)"),
+    FUME("浮名 (Folia)"),
+    TILT("倾诉 (Folia)"),
+    PARTITA("云阶 (Folia)"),
+    PENDOLO("时计 (Folia)"),
 }
 
 @Serializable
@@ -75,6 +76,9 @@ data class Settings(
     val lyricStyle: LyricStyle = LyricStyle.APPLE,
     val vinylColor: VinylColor = VinylColor.BLACK,
     val themeColor: ThemeColor = ThemeColor.BLUE,
+    /** AI / Smart ambient theme: dynamically adapts player backdrop, waveform, and lyric glow
+     *  to each song's cover palette and lyric mood. */
+    val aiThemeEnabled: Boolean = true,
     /** Player screen: hide progress bar + transport after a few idle seconds; any D-pad / OK key
      *  brings them back. Off by default. */
     val autoHidePlayerControls: Boolean = false,

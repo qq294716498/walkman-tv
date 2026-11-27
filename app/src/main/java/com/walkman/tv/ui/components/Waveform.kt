@@ -85,6 +85,7 @@ private val DefaultWaveLayers = listOf(
 fun Waveform(
     isPlaying: Boolean,
     modifier: Modifier = Modifier,
+    accentColor: androidx.compose.ui.graphics.Color = AppColors.AccentGreen,
     levelProvider: () -> Float = { 0f },
 ) {
     val active = isPlaying && LocalScreenActive.current
@@ -105,14 +106,13 @@ fun Waveform(
 
     val density = LocalDensity.current
     val paths = remember { List(DefaultWaveLayers.size) { Path() } }
-    val accent = AppColors.AccentGreen
-    val brushes = remember(accent) {
+    val brushes = remember(accentColor) {
         DefaultWaveLayers.map { w ->
             Brush.horizontalGradient(
                 colorStops = arrayOf(
-                    0f to accent.copy(alpha = 0f),
-                    0.5f to accent.copy(alpha = w.opacity),
-                    1f to accent.copy(alpha = 0f),
+                    0f to accentColor.copy(alpha = 0f),
+                    0.5f to accentColor.copy(alpha = w.opacity),
+                    1f to accentColor.copy(alpha = 0f),
                 ),
             )
         }
