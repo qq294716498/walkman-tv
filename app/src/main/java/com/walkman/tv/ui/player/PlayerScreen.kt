@@ -104,6 +104,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
 
   var showEqDialog by remember { mutableStateOf(false) }
   var showQualityDialog by remember { mutableStateOf(false) }
+  var showLyricStyleDialog by remember { mutableStateOf(false) }
   var showPicker by remember { mutableStateOf(false) }
 
   // 核心自适应算法：获取屏幕物理总高度（DP），彻底摆脱内部组件相互挤压的局限
@@ -112,7 +113,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
   // 强制将黑胶总盘面尺寸锚定为全屏高度的 67%（大屏自动等比放大，且视觉效果极为饱满）
   val vinylAbsoluteSize = screenHeight * 0.67f
 
-  val wantsFocus = !state.isMv && !showMvQueue && !showEqDialog && !showQualityDialog && !showPicker
+  val wantsFocus = !state.isMv && !showMvQueue && !showEqDialog && !showQualityDialog && !showLyricStyleDialog && !showPicker
   LaunchedEffect(wantsFocus) {
     if (wantsFocus) tryRequestFocus(playFocus)
   }
@@ -315,6 +316,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
             onShowQueue = { showMvQueue = true },
             onTuneClick = { showEqDialog = true },
             onQualityClick = { showQualityDialog = true },
+            onLyricStyleClick = { showLyricStyleDialog = true },
             playFocusRequester = playFocus,
             progressFocusRequester = progressFocus,
           )
@@ -344,6 +346,16 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
           controller.switchQuality(q)
         },
         onDismiss = { showQualityDialog = false },
+      )
+    }
+    if (showLyricStyleDialog) {
+      LyricStylePickerDialog(
+        current = settings.lyricStyle,
+        onSelect = { style ->
+          showLyricStyleDialog = false
+          scope.launch { appContainer.settingsStore.update { it.copy(lyricStyle = style) } }
+        },
+        onDismiss = { showLyricStyleDialog = false },
       )
     }
     if (showPicker) {
@@ -659,6 +671,72 @@ private fun QualityPickerDialog(
   }
 }
 
+@Composable
+private fun LyricStylePickerDialog(
+  current: com.walkman.tv.data.store.LyricStyle,
+  onSelect: (com.walkman.tv.data.store.LyricStyle) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  val activeFocus = remember { FocusRequester() }
+  LaunchedEffect(Unit) {
+    delay(60)
+    runCatching { activeFocus.requestFocus() }
+  }
+  androidx.compose.ui.window.Dialog(
+    onDismissRequest = onDismiss,
+    properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+  ) {
+    Column(
+      modifier = Modifier
+        .width(400.dp)
+        .clip(RoundedCornerShape(16.dp))
+        .background(AppColors.BgPanel)
+        .padding(horizontal = 22.dp, vertical = 20.dp),
+    ) {
+      Text("歌词样式", color = AppColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+      Spacer(Modifier.height(4.dp))
+      Text("选择播放页歌词渲染风格，立即生效", color = AppColors.TextSecondary, fontSize = 12.sp)
+      Spacer(Modifier.height(14.dp))
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        com.walkman.tv.data.store.LyricStyle.entries.forEach { style ->
+          val active = style == current
+          val desc = when (style) {
+            com.walkman.tv.data.store.LyricStyle.CLASSIC -> "居中简洁排版，经典高亮"
+            com.walkman.tv.data.store.LyricStyle.APPLE -> "左对齐粗体 + 弹簧缩放 + 60fps 像素扫光"
+            com.walkman.tv.data.store.LyricStyle.FOLIA -> "居中流光辉光 + 主题色扫光 + 当前行渐显翻译"
+          }
+          TvFocusable(
+            onClick = { onSelect(style) },
+            modifier = Modifier
+              .fillMaxWidth()
+              .let { if (active) it.focusRequester(activeFocus) else it },
+            focusedScale = 1.02f,
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Column(modifier = Modifier.weight(1f)) {
+                Text(
+                  style.label,
+                  color = if (active) AppColors.AccentGreen else AppColors.TextPrimary,
+                  fontSize = 14.sp,
+                  fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(desc, color = AppColors.TextSecondary, fontSize = 11.sp)
+              }
+              if (active) {
+                Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun TransportBar(
@@ -674,6 +752,7 @@ private fun TransportBar(
   onShowQueue: () -> Unit,
   onTuneClick: () -> Unit,
   onQualityClick: () -> Unit,
+  onLyricStyleClick: () -> Unit,
   playFocusRequester: FocusRequester? = null,
   progressFocusRequester: FocusRequester? = null,
 ) {
@@ -686,6 +765,7 @@ private fun TransportBar(
   val playFocus = playFocusRequester ?: remember { FocusRequester() }
   val nextFocus = remember { FocusRequester() }
   val faveFocus = remember { FocusRequester() }
+  val lyricStyleFocus = remember { FocusRequester() }
   val mvFocus = remember { FocusRequester() }
   val queueFocus = remember { FocusRequester() }
   // 播放页盖在主界面上，主界面的控件仍在下面参与焦点查找。交给系统按位置找的话，会找到被盖住的
@@ -793,7 +873,7 @@ private fun TransportBar(
         onClick = onToggleFav,
         modifier = Modifier.focusProperties {
           left = nextFocus
-          right = mvFocus
+          right = lyricStyleFocus
         },
       )
     }
@@ -803,10 +883,21 @@ private fun TransportBar(
       horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       TvPill(
+        onClick = onLyricStyleClick,
+        focusRequester = lyricStyleFocus,
+        modifier = Modifier.focusProperties {
+          left = faveFocus
+          right = mvFocus
+        },
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+      ) {
+        Text("歌词", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+      }
+      TvPill(
         onClick = onMv,
         focusRequester = mvFocus,
         modifier = Modifier.focusProperties {
-          left = faveFocus
+          left = lyricStyleFocus
           right = queueFocus
         },
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp),
@@ -969,13 +1060,14 @@ private fun LyricPane(
     Box(modifier, contentAlignment = Alignment.Center) { Text("暂无歌词", color = AppColors.TextMuted) }
     return
   }
-  if (lyricStyle == com.walkman.tv.data.store.LyricStyle.APPLE) {
+  if (lyricStyle != com.walkman.tv.data.store.LyricStyle.CLASSIC) {
     AppleLyricPane(
       lyrics = lyrics,
       fallbackPositionMs = positionMs,
       lyricSize = lyricSize,
       isPlaying = isPlaying,
       showTranslation = showTranslation,
+      foliaMode = lyricStyle == com.walkman.tv.data.store.LyricStyle.FOLIA,
       modifier = modifier,
     )
     return
@@ -1023,12 +1115,10 @@ private fun LyricPane(
 }
 
 /**
- * Apple Music-like Lyrics (AMLL) style lyric pane optimised for Android TV:
- * - Constant fontSize + GPU-only spring scale (0.78 -> 1.0) so line switches never snap/relayout
- * - VSync-locked local clock with derivedStateOf(active) so LazyColumn never recomposes mid-line
- * - Pixel-smooth 60fps per-line horizontal gradient sweep in drawWithContent (works on wrapped lines)
- * - Distance-based depth opacity + top/bottom soft edge fade mask
- * - Pulsing interlude dots during intro or instrumental gaps
+ * Shared 60fps smooth lyric pane optimised for Android TV supporting two modes:
+ * - AMLL (Apple Music-like): left-aligned bold white typography, GPU spring scale, soft edge fade
+ * - Folia ("流光"): centered editorial layout, theme-tinted luminous bloom glow (Skia Shadow),
+ *   wider dreamy feather sweep, gentle upward float, and active-line translation reveal.
  */
 @Composable
 private fun AppleLyricPane(
@@ -1037,6 +1127,7 @@ private fun AppleLyricPane(
   lyricSize: com.walkman.tv.data.store.LyricSize,
   isPlaying: Boolean,
   showTranslation: Boolean,
+  foliaMode: Boolean = false,
   modifier: Modifier = Modifier,
 ) {
   val controller = appContainer.playbackController
@@ -1067,7 +1158,7 @@ private fun AppleLyricPane(
   val listState = rememberLazyListState()
   LaunchedEffect(active) {
     if (active >= 0) {
-      runCatching { listState.animateScrollToItem(active, scrollOffset = -110) }
+      runCatching { listState.animateScrollToItem(active, scrollOffset = if (foliaMode) -140 else -110) }
     }
   }
 
@@ -1088,13 +1179,22 @@ private fun AppleLyricPane(
         drawContent()
         drawRect(brush = edgeFadeBrush, blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
       },
-    verticalArrangement = Arrangement.spacedBy(18.dp),
-    horizontalAlignment = Alignment.Start,
-    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 64.dp, bottom = 140.dp, end = 16.dp),
+    verticalArrangement = Arrangement.spacedBy(if (foliaMode) 22.dp else 18.dp),
+    horizontalAlignment = if (foliaMode) Alignment.CenterHorizontally else Alignment.Start,
+    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+      top = 64.dp,
+      bottom = 140.dp,
+      start = if (foliaMode) 12.dp else 0.dp,
+      end = if (foliaMode) 12.dp else 16.dp,
+    ),
   ) {
     if (active < 0 && lyrics.firstOrNull()?.time?.let { it > 1.5 } == true) {
       item(key = "amll-intro-dots") {
-        AppleInterludeDots(isPlaying = isPlaying, modifier = Modifier.padding(vertical = 8.dp))
+        AppleInterludeDots(
+          isPlaying = isPlaying,
+          dotColor = if (foliaMode) AppColors.LyricActive else Color.White,
+          modifier = Modifier.padding(vertical = 8.dp),
+        )
       }
     }
     itemsIndexed(lyrics, key = { idx, line -> "${line.id}-$idx" }) { i, line ->
@@ -1113,6 +1213,7 @@ private fun AppleLyricPane(
         isPlaying = isPlaying,
         lyricSize = lyricSize,
         showTranslation = showTranslation,
+        foliaMode = foliaMode,
       )
     }
   }
@@ -1128,11 +1229,16 @@ private fun AppleLyricRow(
   isPlaying: Boolean,
   lyricSize: com.walkman.tv.data.store.LyricSize,
   showTranslation: Boolean,
+  foliaMode: Boolean,
 ) {
   val isActive = index == activeIndex
   // Keep fontSize constant across active/inactive and drive the size transition purely via GPU
   // scale so switching lines never causes a sudden layout pop or text re-wrap jitter.
-  val targetScale = if (isActive) 1.0f else 0.78f
+  val targetScale = if (foliaMode) {
+    if (isActive) 1.04f else 0.80f
+  } else {
+    if (isActive) 1.0f else 0.78f
+  }
   val targetAlpha = when {
     isActive -> 1f
     activeIndex < 0 -> (0.52f - index * 0.10f).coerceAtLeast(0.16f)
@@ -1142,10 +1248,18 @@ private fun AppleLyricRow(
   val scale by androidx.compose.animation.core.animateFloatAsState(
     targetValue = targetScale,
     animationSpec = androidx.compose.animation.core.spring(
-      dampingRatio = 0.78f,
+      dampingRatio = if (foliaMode) 0.74f else 0.78f,
       stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
     ),
     label = "amll-scale",
+  )
+  val liftPx by androidx.compose.animation.core.animateFloatAsState(
+    targetValue = if (foliaMode && isActive) -6f else 0f,
+    animationSpec = androidx.compose.animation.core.spring(
+      dampingRatio = 0.75f,
+      stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
+    ),
+    label = "folia-lift",
   )
   val rowAlpha by androidx.compose.animation.core.animateFloatAsState(
     targetValue = targetAlpha,
@@ -1155,22 +1269,41 @@ private fun AppleLyricRow(
 
   if (line.text.isBlank()) {
     if (isActive) {
-      AppleInterludeDots(isPlaying = isPlaying, modifier = Modifier.padding(vertical = 8.dp))
+      AppleInterludeDots(
+        isPlaying = isPlaying,
+        dotColor = if (foliaMode) AppColors.LyricActive else Color.White,
+        modifier = Modifier.padding(vertical = 8.dp),
+      )
     }
     return
   }
 
   val baseSp = lyricSize.activeSp + 4
   var textLayout by remember(line.text) { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+  val activeTextColor = if (foliaMode) AppColors.LyricActive else Color.White
+  val activeShadow = if (foliaMode && isActive) {
+    androidx.compose.ui.graphics.Shadow(
+      color = AppColors.AccentGreen.copy(alpha = 0.65f),
+      offset = androidx.compose.ui.geometry.Offset.Zero,
+      blurRadius = 24f,
+    )
+  } else {
+    null
+  }
 
   Column(
-    horizontalAlignment = Alignment.Start,
+    horizontalAlignment = if (foliaMode) Alignment.CenterHorizontally else Alignment.Start,
     modifier = Modifier
       .fillMaxWidth()
       .graphicsLayer {
         scaleX = scale
         scaleY = scale
-        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+        translationY = liftPx
+        transformOrigin = if (foliaMode) {
+          androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
+        } else {
+          androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+        }
         alpha = rowAlpha
       },
   ) {
@@ -1182,13 +1315,13 @@ private fun AppleLyricRow(
           val layout = textLayout ?: return@drawWithContent
           val posSec = positionProvider() / 1000.0
           val progress = ((posSec - line.time) / lineDurationSec).coerceIn(0.0, 1.0).toFloat()
-          val featherPx = 44.dp.toPx()
+          val featherPx = (if (foliaMode) 64.dp else 44.dp).toPx()
           var totalWidth = 0f
           for (l in 0 until layout.lineCount) {
             totalWidth += (layout.getLineRight(l) - layout.getLineLeft(l)).coerceAtLeast(1f)
           }
           val sweptPx = progress * (totalWidth + featherPx)
-          val unsungMask = Color.White.copy(alpha = 0.36f)
+          val unsungMask = Color.White.copy(alpha = if (foliaMode) 0.30f else 0.36f)
           var accWidth = 0f
           for (l in 0 until layout.lineCount) {
             val left = layout.getLineLeft(l)
@@ -1229,30 +1362,37 @@ private fun AppleLyricRow(
 
     Text(
       text = line.text,
-      color = Color.White,
+      color = if (isActive) activeTextColor else Color.White,
       fontSize = baseSp.sp,
       lineHeight = (baseSp * 1.28f).sp,
       fontWeight = FontWeight.Bold,
-      textAlign = TextAlign.Start,
+      textAlign = if (foliaMode) TextAlign.Center else TextAlign.Start,
+      style = androidx.compose.ui.text.TextStyle(shadow = activeShadow),
       onTextLayout = { textLayout = it },
       modifier = sweepModifier,
     )
-    line.translation?.takeIf { showTranslation && it.isNotBlank() }?.let { trans ->
+    // Folia style reveals translation cleanly on the active line to keep inactive lines uncluttered.
+    val showTransRow = showTranslation && (!foliaMode || isActive)
+    line.translation?.takeIf { showTransRow && it.isNotBlank() }?.let { trans ->
       Spacer(Modifier.height(4.dp))
       Text(
         text = trans,
-        color = Color.White.copy(alpha = 0.72f),
+        color = if (foliaMode) AppColors.LyricActive.copy(alpha = 0.78f) else Color.White.copy(alpha = 0.72f),
         fontSize = (lyricSize.translationSp + 2).sp,
         lineHeight = ((lyricSize.translationSp + 2) * 1.3f).sp,
         fontWeight = FontWeight.Medium,
-        textAlign = TextAlign.Start,
+        textAlign = if (foliaMode) TextAlign.Center else TextAlign.Start,
       )
     }
   }
 }
 
 @Composable
-private fun AppleInterludeDots(isPlaying: Boolean, modifier: Modifier = Modifier) {
+private fun AppleInterludeDots(
+  isPlaying: Boolean,
+  dotColor: Color = Color.White,
+  modifier: Modifier = Modifier,
+) {
   val phase = if (isPlaying) {
     val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "amll-dots")
     transition.animateFloat(
@@ -1285,7 +1425,7 @@ private fun AppleInterludeDots(isPlaying: Boolean, modifier: Modifier = Modifier
             alpha = a
           }
           .clip(androidx.compose.foundation.shape.CircleShape)
-          .background(Color.White),
+          .background(dotColor),
       )
     }
   }

@@ -49,11 +49,13 @@ enum class ThemeColor(
 
 /** Lyric rendering style in PlayerScreen. CLASSIC is the original centered list;
  *  APPLE is an Apple Music-like (AMLL) style with left-aligned bold typography, spring scale,
- *  edge fade, interlude dots, and smooth left-to-right active-line sweep. */
+ *  edge fade, interlude dots, and smooth left-to-right active-line sweep;
+ *  FOLIA is a Folia/Monet-inspired luminous glow lyric style optimised for Android TV. */
 @Serializable
 enum class LyricStyle(val label: String) {
     CLASSIC("经典"),
     APPLE("类苹果 (AMLL)"),
+    FOLIA("流光 (Folia)"),
 }
 
 @Serializable
