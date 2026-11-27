@@ -247,6 +247,35 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        Section("主题颜色") {
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                com.walkman.tv.data.store.ThemeColor.entries.forEach { theme ->
+                    val swatch = androidx.compose.ui.graphics.Color(theme.primaryArgb)
+                    TvPill(
+                        onClick = { scope.launch { appContainer.settingsStore.update { it.copy(themeColor = theme) } } },
+                        selected = settings.themeColor == theme,
+                        accent = swatch,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(swatch),
+                            )
+                            Text(theme.label, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+
         Section("黑胶颜色") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 com.walkman.tv.data.store.VinylColor.entries.forEach { color ->

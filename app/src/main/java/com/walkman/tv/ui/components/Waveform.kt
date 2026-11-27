@@ -105,13 +105,14 @@ fun Waveform(
 
     val density = LocalDensity.current
     val paths = remember { List(DefaultWaveLayers.size) { Path() } }
-    val brushes = remember {
+    val accent = AppColors.AccentGreen
+    val brushes = remember(accent) {
         DefaultWaveLayers.map { w ->
             Brush.horizontalGradient(
                 colorStops = arrayOf(
-                    0f to AppColors.AccentGreen.copy(alpha = 0f),
-                    0.5f to AppColors.AccentGreen.copy(alpha = w.opacity),
-                    1f to AppColors.AccentGreen.copy(alpha = 0f),
+                    0f to accent.copy(alpha = 0f),
+                    0.5f to accent.copy(alpha = w.opacity),
+                    1f to accent.copy(alpha = 0f),
                 ),
             )
         }

@@ -1,8 +1,12 @@
 package com.walkman.tv.ui.theme
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import com.walkman.tv.data.store.ThemeColor
 
-/** Palette ported from the RN TV `config/tvStyles` + iOS `DesignSystem`. Dark, neon-green accent.
+/** Palette ported from the RN TV `config/tvStyles` + iOS `DesignSystem`. Dark, customizable accent.
  *
  *  Token taxonomy:
  *   - Bg* / Card*       → surfaces
@@ -21,21 +25,24 @@ object AppColors {
     val Card = Color(0xFF2A2D38)
     val CardElevated = Color(0xFF333744)
 
+    /** Active accent theme; backed by Compose Snapshot state so changing it in Settings recomposes live. */
+    var themeColor by mutableStateOf(ThemeColor.GREEN)
+
     // ── Brand (single hue, three intensities). UI binds to semantic aliases below. ────────
-    val BrandPrimary = Color(0xFF4ADE80)          // base — green 500
-    val BrandBright  = Color(0xFF7EE7A4)          // lighter — focus halo / lyric active
+    val BrandPrimary: Color get() = Color(themeColor.primaryArgb)
+    val BrandBright: Color get() = Color(themeColor.brightArgb)
 
     // Kept as physical aliases for incremental migration. New code should prefer the
     // semantic tokens below.
-    val AccentGreen = BrandPrimary
-    val AccentGreenDim = Color(0x594ADE80)
-    val NeonGreen = Color(0xFF39FF14)
+    val AccentGreen: Color get() = BrandPrimary
+    val AccentGreenDim: Color get() = BrandPrimary.copy(alpha = 0.35f)
+    val NeonGreen: Color get() = Color(themeColor.neonArgb)
 
     // ── Interaction state (semantic) ──────────────────────────────────────────────────────
-    val Selected      = BrandPrimary                       // pill 选中 / 当前 tab / now-playing
-    val Focus         = BrandBright                        // 焦点环 — 比 Selected 略亮一档
-    val Progress      = BrandPrimary.copy(alpha = 0.92f)   // 进度条 / 波形主线
-    val WaveformGhost = BrandPrimary.copy(alpha = 0.40f)   // 波形副线
+    val Selected: Color get() = BrandPrimary                       // pill 选中 / 当前 tab / now-playing
+    val Focus: Color get() = BrandBright                           // 焦点环 — 比 Selected 略亮一档
+    val Progress: Color get() = BrandPrimary.copy(alpha = 0.92f)   // 进度条 / 波形主线
+    val WaveformGhost: Color get() = BrandPrimary.copy(alpha = 0.40f) // 波形副线
 
     // ── Functional (non-brand) ───────────────────────────────────────────────────────────
     val Danger  = Color(0xFFEF5A6F)   // 删除 / 退出确定 / 清空 — 红
@@ -49,10 +56,10 @@ object AppColors {
     val NavActiveBg = Color(0x2EFFFFFF)
     val NavInactiveBg = Color(0xFF2A2D38)
 
-    val FocusBorder = Focus
+    val FocusBorder: Color get() = Focus
     val FocusFill = Color(0x24FFFFFF)
 
-    val LyricActive = BrandBright            // 比 Selected 更亮，区分「当前演唱行」vs「选中」
+    val LyricActive: Color get() = BrandBright            // 比 Selected 更亮，区分「当前演唱行」vs「选中」
     val LyricIdle = Color(0xFF888888)
 
     // Source tints (酷我/酷狗/QQ/网易/咪咕/本地) — from DesignSystem.swift

@@ -31,6 +31,22 @@ enum class VinylColor(val label: String) {
     GOLD("琥珀金"),
 }
 
+/** Global UI accent color theme. GREEN is the original look and the default. */
+@Serializable
+enum class ThemeColor(
+    val label: String,
+    val primaryArgb: Long,
+    val brightArgb: Long,
+    val neonArgb: Long,
+) {
+    GREEN("翠绿", 0xFF4ADE80, 0xFF7EE7A4, 0xFF39FF14),
+    BLUE("极光蓝", 0xFF38BDF8, 0xFF7DD3FC, 0xFF0EA5E9),
+    PURPLE("星云紫", 0xFFA78BFA, 0xFFC4B5FD, 0xFF8B5CF6),
+    AMBER("琥珀金", 0xFFFBBF24, 0xFFFDE047, 0xFFF59E0B),
+    CORAL("珊瑚红", 0xFFFB7185, 0xFFFDA4AF, 0xFFF43F5E),
+    CYAN("青碧", 0xFF2DD4BF, 0xFF5EEAD4, 0xFF14B8A6),
+}
+
 @Serializable
 data class Settings(
     val preferredQuality: Quality = Quality.FLAC24,
@@ -46,6 +62,7 @@ data class Settings(
     val showLyricTranslation: Boolean = true,
     val lyricSize: LyricSize = LyricSize.STANDARD,
     val vinylColor: VinylColor = VinylColor.GREEN,
+    val themeColor: ThemeColor = ThemeColor.GREEN,
     /** Player screen: hide progress bar + transport after a few idle seconds; any D-pad / OK key
      *  brings them back. Off by default. */
     val autoHidePlayerControls: Boolean = false,
