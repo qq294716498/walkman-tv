@@ -316,7 +316,7 @@ private fun RecommendGrid(
       androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier.fillMaxSize().focusGroup(),
         state = publicListState,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 6.dp, bottom = 32.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
         item {

@@ -79,7 +79,7 @@ fun TrackRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        TvFocusable(onClick = onClick, modifier = modifier.weight(1f)) {
+        TvFocusable(onClick = onClick, modifier = modifier.weight(1f), focusedScale = 1.015f) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -248,7 +248,7 @@ fun TrackList(
     tracks: List<Track>,
     modifier: Modifier = Modifier,
     nowPlayingId: String? = null,
-    contentPadding: PaddingValues = PaddingValues(vertical = 8.dp),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
     initialFocus: Boolean = false,
     showDownloadedBadge: Boolean = false,
     /** Non-null ⇒ every row gets a delete button (从歌单移除 / 删除播放历史 …). */

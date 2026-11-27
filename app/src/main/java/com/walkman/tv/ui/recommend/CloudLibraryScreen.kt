@@ -217,7 +217,7 @@ fun CloudLibraryScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize().focusGroup(),
                 state = listState,
-                contentPadding = PaddingValues(bottom = 32.dp),
+                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item {
@@ -518,6 +518,7 @@ private fun CompactPlaylistCard(
         modifier = modifier.height(76.dp),
         shape = RoundedCornerShape(12.dp),
         container = AppColors.BgPanel,
+        focusedScale = 1.02f,
     ) {
         Row(
             Modifier.fillMaxSize().padding(9.dp),
@@ -609,6 +610,7 @@ private fun AccountManageEntry(
         modifier = Modifier.fillMaxWidth().height(70.dp),
         shape = RoundedCornerShape(14.dp),
         container = AppColors.BgPanel,
+        focusedScale = 1.015f,
     ) {
         Row(
             Modifier.fillMaxSize().padding(horizontal = 16.dp),

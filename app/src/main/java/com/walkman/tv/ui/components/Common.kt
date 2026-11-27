@@ -39,6 +39,7 @@ fun TvFocusable(
     shape: Shape = RoundedCornerShape(12.dp),
     container: Color = AppColors.Card,
     focusedContainer: Color = AppColors.CardElevated,
+    focusedScale: Float = 1.04f,
     onLongClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
@@ -54,7 +55,7 @@ fun TvFocusable(
             contentColor = AppColors.TextPrimary,
             focusedContentColor = AppColors.TextPrimary,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = focusedScale),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(BorderStroke(2.dp, AppColors.AccentGreen), shape = shape),
         ),

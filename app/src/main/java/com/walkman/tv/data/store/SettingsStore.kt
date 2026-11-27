@@ -71,7 +71,7 @@ data class Settings(
     val showLyricTranslation: Boolean = true,
     val lyricSize: LyricSize = LyricSize.STANDARD,
     val lyricStyle: LyricStyle = LyricStyle.CLASSIC,
-    val vinylColor: VinylColor = VinylColor.GREEN,
+    val vinylColor: VinylColor = VinylColor.BLACK,
     val themeColor: ThemeColor = ThemeColor.BLUE,
     /** Player screen: hide progress bar + transport after a few idle seconds; any D-pad / OK key
      *  brings them back. Off by default. */
