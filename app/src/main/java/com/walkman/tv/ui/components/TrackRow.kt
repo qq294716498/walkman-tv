@@ -178,7 +178,10 @@ private fun RowAction(
  * Public so other surfaces (e.g. the player queue drawer) can reuse the same indicator.
  */
 @Composable
-internal fun MiniWaveform(modifier: Modifier = Modifier) {
+internal fun MiniWaveform(
+    modifier: Modifier = Modifier,
+    color: androidx.compose.ui.graphics.Color = AppColors.AccentGreen,
+) {
     val bars = 6
     val active = com.walkman.tv.ui.LocalScreenActive.current
     val phaseState = if (active) {
@@ -208,7 +211,7 @@ internal fun MiniWaveform(modifier: Modifier = Modifier) {
             val v = ((sin(phase * (1f + (i % 3) * 0.55f) + i * 0.7f) + 1f) / 2f)
             val h = (minH + (maxH - minH) * v).coerceAtLeast(2.dp.toPx())
             drawRoundRect(
-                color = AppColors.AccentGreen,
+                color = color,
                 topLeft = Offset(x, centerY - h / 2),
                 size = Size(barWidth, h),
                 cornerRadius = CornerRadius(barWidth / 2, barWidth / 2),

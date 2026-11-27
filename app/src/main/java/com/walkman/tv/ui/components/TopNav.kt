@@ -20,16 +20,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
@@ -210,77 +214,96 @@ private fun NowPlayingChip(
             }
         }
     }
-    // Underline-style chip: transparent background, green underline beneath the title.
-    // Focus state still goes through tv-material Surface (clickable) — when focused we get the
-    // existing green pill, but the default state is now a clean text + underline instead of
-    // the heavy NavInactiveBg pill.
+    var focused by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val shape = RoundedCornerShape(50)
     androidx.tv.material3.Surface(
         onClick = onClick,
-        modifier = modifier.tvTouch(onClick),
-        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+        modifier = modifier
+            .onFocusChanged { focused = it.isFocused }
+            .tvTouch(onClick),
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape = shape),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
+            containerColor = AppColors.Card.copy(alpha = 0.72f),
             focusedContainerColor = AppColors.AccentGreen,
             pressedContainerColor = AppColors.AccentGreen,
             contentColor = AppColors.TextPrimary,
             focusedContentColor = AppColors.BgDeep,
             pressedContentColor = AppColors.BgDeep,
         ),
-        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
         border = androidx.tv.material3.ClickableSurfaceDefaults.border(
-            border = androidx.tv.material3.Border(BorderStroke(0.dp, Color.Transparent)),
-            focusedBorder = androidx.tv.material3.Border(BorderStroke(2.dp, AppColors.AccentGreen)),
+            border = androidx.tv.material3.Border(
+                BorderStroke(1.dp, AppColors.AccentGreen.copy(alpha = 0.35f)),
+                shape = shape,
+            ),
+            focusedBorder = androidx.tv.material3.Border(
+                BorderStroke(2.dp, AppColors.Focus),
+                shape = shape,
+            ),
         ),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        Row(
+            modifier = Modifier.padding(start = 6.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(if (focused) AppColors.BgDeep.copy(alpha = 0.2f) else AppColors.AccentGreen.copy(alpha = 0.25f)),
+                contentAlignment = Alignment.Center,
+            ) {
                 Box(
                     modifier = Modifier
-                        .size(16.dp)
-                        .clip(CircleShape)
-                        .background(AppColors.AccentGreen.copy(alpha = 0.25f)),
-                    contentAlignment = Alignment.Center,
+                        .size(24.dp)
+                        .graphicsLayer { rotationZ = rotation.value }
+                        .clip(CircleShape),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp)
-                            .graphicsLayer { rotationZ = rotation.value }
-                            .clip(CircleShape),
-                    ) {
-                        com.walkman.tv.ui.components.Artwork(
-                            picURL,
-                            modifier = Modifier.size(14.dp),
-                            shape = CircleShape,
-                            decodeSizePx = 64,
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(3.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black),
+                    com.walkman.tv.ui.components.Artwork(
+                        picURL,
+                        modifier = Modifier.size(24.dp),
+                        shape = CircleShape,
+                        decodeSizePx = 64,
                     )
                 }
-                Spacer(Modifier.width(7.dp))
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black),
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.width(108.dp)) {
+                Text(
+                    text = if (isPlaying) "正在播放" else "已暂停",
+                    color = if (focused) AppColors.BgDeep.copy(alpha = 0.75f) else AppColors.AccentGreen,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
                 Text(
                     text = title,
                     fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(120.dp),
                 )
             }
-            // Thin green underline accent under the chip content.
-            Spacer(Modifier.height(3.dp))
-            Box(
-                modifier = Modifier
-                    .width(150.dp)
-                    .height(1.5.dp)
-                    .background(AppColors.AccentGreen),
-            )
+            Spacer(Modifier.width(6.dp))
+            if (isPlaying) {
+                MiniWaveform(
+                    modifier = Modifier.size(width = 16.dp, height = 14.dp),
+                    color = if (focused) AppColors.BgDeep else AppColors.AccentGreen,
+                )
+            } else {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.PlayArrow,
+                    contentDescription = "继续播放",
+                    tint = if (focused) AppColors.BgDeep else AppColors.TextSecondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }

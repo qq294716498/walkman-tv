@@ -205,13 +205,13 @@ fun CloudLibraryScreen(
         }
     }
 
-    val columns = 3
+    val columns = 2
     val recommendedRows = remember(recommended) { recommended.take(12).chunked(columns) }
     val cloudRows = remember(filteredEntries, showAllCloud) {
-        (if (showAllCloud) filteredEntries else filteredEntries.take(18)).chunked(columns)
+        (if (showAllCloud) filteredEntries else filteredEntries.take(12)).chunked(columns)
     }
 
-    Box(modifier = modifier.fillMaxSize().padding(top = 8.dp)) {
+    Box(modifier = modifier.fillMaxSize()) {
         val currentDetail = detail
         if (currentDetail == null) {
             LazyColumn(
@@ -390,7 +390,7 @@ fun CloudLibraryScreen(
                     }
                 }
 
-                if (filteredEntries.size > 18) {
+                if (filteredEntries.size > 12) {
                     item {
                         TvPill(onClick = { showAllCloud = !showAllCloud }) {
                             Text(

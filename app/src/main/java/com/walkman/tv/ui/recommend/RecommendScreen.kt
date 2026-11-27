@@ -70,6 +70,7 @@ fun RecommendScreen(
   onNavigate: (NavSection) -> Unit,
   onOpenPlayer: () -> Unit,
   modifier: Modifier = Modifier,
+  showCloudLibrary: Boolean = false,
 ) {
   // 获取屏幕物理总高度（DP）
   val configuration = androidx.compose.ui.platform.LocalConfiguration.current
@@ -84,11 +85,18 @@ fun RecommendScreen(
       modifier = Modifier.width(panelDynamicWidth).fillMaxHeight()
     )
     Spacer(Modifier.width(16.dp))
-    RecommendGrid(
-      onNavigate = onNavigate,
-      onOpenPlayer = onOpenPlayer,
-      modifier = Modifier.weight(1f).fillMaxHeight(),
-    )
+    if (showCloudLibrary) {
+      CloudLibraryScreen(
+        onOpenPlayer = onOpenPlayer,
+        modifier = Modifier.weight(1f).fillMaxHeight(),
+      )
+    } else {
+      RecommendGrid(
+        onNavigate = onNavigate,
+        onOpenPlayer = onOpenPlayer,
+        modifier = Modifier.weight(1f).fillMaxHeight(),
+      )
+    }
   }
 }
 
