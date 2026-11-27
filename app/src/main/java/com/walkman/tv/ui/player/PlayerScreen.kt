@@ -121,9 +121,11 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
   // 播放控件自动隐藏：空闲 5 秒隐藏进度条 + 控制栏。隐藏后 Compose 内没有焦点，按键只会落到
   // Activity，所以在 Activity.dispatchKeyEvent 层拦截：方向键 / 确认键只负责唤出控件（吞掉该次
   // 按键，避免确认键误触暂停）；返回、菜单、媒体键照常放行。
+  val isFoliaWebViewActive = settings.foliaWebViewEnabled &&
+    settings.lyricStyle == com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW
   var controlsVisible by remember { mutableStateOf(true) }
   var idleTick by remember { mutableStateOf(0) }
-  val autoHideActive = settings.autoHidePlayerControls && wantsFocus
+  val autoHideActive = (settings.autoHidePlayerControls || isFoliaWebViewActive) && wantsFocus
   LaunchedEffect(autoHideActive, controlsVisible, idleTick) {
     if (!autoHideActive) {
       controlsVisible = true
@@ -220,11 +222,13 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
   )
 
   Box(modifier = modifier.fillMaxSize().background(AppColors.BgDeep)) {
-    CoverBackdrop(
-      picURL = track?.picURL,
-      orbPrimary = orbPrimary,
-      orbSecondary = orbSecondary,
-    )
+    if (!isFoliaWebViewActive) {
+      CoverBackdrop(
+        picURL = track?.picURL,
+        orbPrimary = orbPrimary,
+        orbSecondary = orbSecondary,
+      )
+    }
 
     if (track == null) {
       Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -233,95 +237,127 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
       return@Box
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 32.dp)) {
-      // 主展示内容区 Row
-      Row(modifier = Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
-        // 左侧歌词自适应收缩区：吃掉除去右侧唱片尺寸后剩下的全部横向空间
-        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-          Text(
-            track.name,
-            color = AppColors.TextPrimary,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-          )
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            Text(
-              track.singer,
-              color = AppColors.TextSecondary,
-              fontSize = 13.sp,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-            )
-            activeTheme?.moodLabel?.let { mood ->
-              Box(
-                modifier = Modifier
-                  .clip(RoundedCornerShape(50))
-                  .background(effectiveAccent.copy(alpha = 0.18f))
-                  .padding(horizontal = 8.dp, vertical = 2.dp),
-              ) {
-                Text(
-                  "✦ $mood",
-                  color = effectiveBright,
-                  fontSize = 10.sp,
-                  fontWeight = FontWeight.SemiBold,
-                  maxLines = 1,
-                )
-              }
-            }
-          }
-          // 播放调试信息（设置里开启）：获取地址 / 失败自动跳过 / 换源降级，排查音源问题用。
-          val status = state.error ?: (if (state.resolving) "正在获取播放地址…" else state.warning)
-          if (settings.showDebugInfo && status != null) {
-            Text(
-              status,
-              color = if (state.error != null) AppColors.Danger else AppColors.Warning,
-              fontSize = 12.sp,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-              modifier = Modifier.padding(top = 4.dp),
-            )
-          }
-          Spacer(Modifier.height(18.dp))
-          LyricPane(
-            lyrics,
-            state.positionMs,
-            lyricSize = lyricSize,
-            lyricStyle = settings.lyricStyle,
-            isPlaying = state.isPlaying,
-            showTranslation = settings.showLyricTranslation,
-            accentColor = effectiveAccent,
-            brightColor = effectiveBright,
-            modifier = Modifier.fillMaxWidth().weight(1f),
-          )
-        }
-
-        Spacer(Modifier.width(36.dp))
-
-        // 右侧黑胶盘面容器：直接赋予正方形物理尺寸命令，从根本上锁死比例，粉碎椭圆化风险
-        Box(
-          modifier = Modifier.size(vinylAbsoluteSize),
-          contentAlignment = Alignment.Center,
-        ) {
-          VinylDisc(
-            picURL = track.picURL,
-            isPlaying = state.isPlaying,
-            palette = vinylPalette(settings.vinylColor),
-            modifier = Modifier.fillMaxSize()
-          )
-        }
-      }
-
-      Spacer(Modifier.height(10.dp))
-      PlayerWaveform(
+    if (isFoliaWebViewActive) {
+      FoliaWebViewStage(
+        track = track,
+        lyrics = lyrics,
+        template = settings.foliaTemplate,
+        showTranslation = settings.showLyricTranslation,
         isPlaying = state.isPlaying,
         accentColor = effectiveAccent,
-        modifier = Modifier.fillMaxWidth().height(40.dp),
+        brightColor = effectiveBright,
+        orbPrimary = orbPrimary,
+        orbSecondary = orbSecondary,
+        modifier = Modifier.fillMaxSize(),
       )
+      if (controlsVisible) {
+        Box(
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .align(Alignment.BottomCenter)
+            .background(
+              Brush.verticalGradient(
+                listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
+              )
+            )
+        )
+      }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 32.dp)) {
+      if (isFoliaWebViewActive) {
+        Spacer(Modifier.weight(1f))
+      } else {
+        // 主展示内容区 Row
+        Row(modifier = Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
+          // 左侧歌词自适应收缩区：吃掉除去右侧唱片尺寸后剩下的全部横向空间
+          Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            Text(
+              track.name,
+              color = AppColors.TextPrimary,
+              fontSize = 22.sp,
+              fontWeight = FontWeight.Bold,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+            )
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              Text(
+                track.singer,
+                color = AppColors.TextSecondary,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+              )
+              activeTheme?.moodLabel?.let { mood ->
+                Box(
+                  modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(effectiveAccent.copy(alpha = 0.18f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                  Text(
+                    "✦ $mood",
+                    color = effectiveBright,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                  )
+                }
+              }
+            }
+            // 播放调试信息（设置里开启）：获取地址 / 失败自动跳过 / 换源降级，排查音源问题用。
+            val status = state.error ?: (if (state.resolving) "正在获取播放地址…" else state.warning)
+            if (settings.showDebugInfo && status != null) {
+              Text(
+                status,
+                color = if (state.error != null) AppColors.Danger else AppColors.Warning,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+              )
+            }
+            Spacer(Modifier.height(18.dp))
+            LyricPane(
+              lyrics,
+              state.positionMs,
+              lyricSize = lyricSize,
+              lyricStyle = settings.lyricStyle,
+              isPlaying = state.isPlaying,
+              showTranslation = settings.showLyricTranslation,
+              accentColor = effectiveAccent,
+              brightColor = effectiveBright,
+              modifier = Modifier.fillMaxWidth().weight(1f),
+            )
+          }
+
+          Spacer(Modifier.width(36.dp))
+
+          // 右侧黑胶盘面容器：直接赋予正方形物理尺寸命令，从根本上锁死比例，粉碎椭圆化风险
+          Box(
+            modifier = Modifier.size(vinylAbsoluteSize),
+            contentAlignment = Alignment.Center,
+          ) {
+            VinylDisc(
+              picURL = track.picURL,
+              isPlaying = state.isPlaying,
+              palette = vinylPalette(settings.vinylColor),
+              modifier = Modifier.fillMaxSize()
+            )
+          }
+        }
+
+        Spacer(Modifier.height(10.dp))
+        PlayerWaveform(
+          isPlaying = state.isPlaying,
+          accentColor = effectiveAccent,
+          modifier = Modifier.fillMaxWidth().height(40.dp),
+        )
+      }
       AnimatedVisibility(visible = controlsVisible) {
         Column {
           Spacer(Modifier.height(6.dp))
@@ -409,6 +445,8 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
     if (showLyricStyleDialog) {
       LyricStylePickerDialog(
         current = settings.lyricStyle,
+        foliaWebViewEnabled = settings.foliaWebViewEnabled,
+        currentFoliaTemplate = settings.foliaTemplate,
         aiThemeEnabled = settings.aiThemeEnabled,
         onToggleAiTheme = {
           scope.launch { appContainer.settingsStore.update { it.copy(aiThemeEnabled = !it.aiThemeEnabled) } }
@@ -416,6 +454,17 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
         onSelect = { style ->
           showLyricStyleDialog = false
           scope.launch { appContainer.settingsStore.update { it.copy(lyricStyle = style) } }
+        },
+        onSelectFoliaTemplate = { tpl ->
+          showLyricStyleDialog = false
+          scope.launch {
+            appContainer.settingsStore.update {
+              it.copy(
+                lyricStyle = com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW,
+                foliaTemplate = tpl,
+              )
+            }
+          }
         },
         onDismiss = { showLyricStyleDialog = false },
       )
@@ -736,9 +785,12 @@ private fun QualityPickerDialog(
 @Composable
 private fun LyricStylePickerDialog(
   current: com.walkman.tv.data.store.LyricStyle,
+  foliaWebViewEnabled: Boolean,
+  currentFoliaTemplate: com.walkman.tv.data.store.FoliaTemplate,
   aiThemeEnabled: Boolean,
   onToggleAiTheme: () -> Unit,
   onSelect: (com.walkman.tv.data.store.LyricStyle) -> Unit,
+  onSelectFoliaTemplate: (com.walkman.tv.data.store.FoliaTemplate) -> Unit,
   onDismiss: () -> Unit,
 ) {
   val activeFocus = remember { FocusRequester() }
@@ -752,12 +804,12 @@ private fun LyricStylePickerDialog(
   ) {
     Column(
       modifier = Modifier
-        .width(420.dp)
+        .width(if (foliaWebViewEnabled) 480.dp else 420.dp)
         .clip(RoundedCornerShape(16.dp))
         .background(AppColors.BgPanel)
         .padding(horizontal = 22.dp, vertical = 18.dp),
     ) {
-      Text("歌词与氛围主题", color = AppColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+      Text("歌词样式与氛围主题", color = AppColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
       Spacer(Modifier.height(4.dp))
       Text("选择歌词样式或开关 AI 随歌配色，立即生效", color = AppColors.TextSecondary, fontSize = 12.sp)
       Spacer(Modifier.height(12.dp))
@@ -788,39 +840,125 @@ private fun LyricStylePickerDialog(
         }
       }
       Spacer(Modifier.height(10.dp))
-      Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-      ) {
-        com.walkman.tv.data.store.LyricStyle.entries.forEach { style ->
-          val active = style == current
-          val desc = when (style) {
-            com.walkman.tv.data.store.LyricStyle.CLASSIC -> "居中简洁排版，经典高亮"
-            com.walkman.tv.data.store.LyricStyle.APPLE -> "左对齐粗体 + 弹簧缩放 + 60fps 像素扫光"
-          }
-          TvFocusable(
-            onClick = { onSelect(style) },
-            modifier = Modifier
-              .fillMaxWidth()
-              .let { if (active) it.focusRequester(activeFocus) else it },
-            focusedScale = 1.02f,
-          ) {
-            Row(
-              modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-              verticalAlignment = Alignment.CenterVertically,
+
+      val baseStyles = listOf(
+        com.walkman.tv.data.store.LyricStyle.CLASSIC to "居中简洁排版，经典高亮",
+        com.walkman.tv.data.store.LyricStyle.APPLE to "左对齐粗体 + 弹簧缩放 + 60fps 像素扫光",
+      )
+
+      if (!foliaWebViewEnabled) {
+        Column(
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+          modifier = Modifier.fillMaxWidth(),
+        ) {
+          baseStyles.forEach { (style, desc) ->
+            val active = style == current
+            TvFocusable(
+              onClick = { onSelect(style) },
+              modifier = Modifier
+                .fillMaxWidth()
+                .let { if (active) it.focusRequester(activeFocus) else it },
+              focusedScale = 1.02f,
             ) {
-              Column(modifier = Modifier.weight(1f)) {
-                Text(
-                  style.label,
-                  color = if (active) AppColors.AccentGreen else AppColors.TextPrimary,
-                  fontSize = 14.sp,
-                  fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(desc, color = AppColors.TextSecondary, fontSize = 11.sp)
+              Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    style.label,
+                    color = if (active) AppColors.AccentGreen else AppColors.TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                  )
+                  Spacer(Modifier.height(2.dp))
+                  Text(desc, color = AppColors.TextSecondary, fontSize = 11.sp)
+                }
+                if (active) {
+                  Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
               }
-              if (active) {
-                Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+          }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+          "提示：如需体验 Folia 全部 18 款动态舞台模板，请前往「设置 → Folia 渲染引擎」开启（性能要求极高）。",
+          color = AppColors.TextMuted,
+          fontSize = 11.sp,
+          lineHeight = 16.sp,
+        )
+      } else {
+        LazyColumn(
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+          modifier = Modifier.fillMaxWidth().height(380.dp),
+          contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp, horizontal = 4.dp),
+        ) {
+          itemsIndexed(baseStyles) { _, (style, desc) ->
+            val active = style == current
+            TvFocusable(
+              onClick = { onSelect(style) },
+              modifier = Modifier
+                .fillMaxWidth()
+                .let { if (active) it.focusRequester(activeFocus) else it },
+              focusedScale = 1.02f,
+            ) {
+              Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    style.label,
+                    color = if (active) AppColors.AccentGreen else AppColors.TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                  )
+                  Spacer(Modifier.height(2.dp))
+                  Text(desc, color = AppColors.TextSecondary, fontSize = 11.sp)
+                }
+                if (active) {
+                  Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+              }
+            }
+          }
+          item(key = "folia-header") {
+            Text(
+              "Folia WebView 舞台模板（18 款 · 全屏无转盘）",
+              color = AppColors.Warning,
+              fontSize = 12.sp,
+              fontWeight = FontWeight.Bold,
+              modifier = Modifier.padding(top = 8.dp, bottom = 2.dp, start = 4.dp),
+            )
+          }
+          itemsIndexed(com.walkman.tv.data.store.FoliaTemplate.entries) { _, tpl ->
+            val active = current == com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW &&
+              currentFoliaTemplate == tpl
+            TvFocusable(
+              onClick = { onSelectFoliaTemplate(tpl) },
+              modifier = Modifier
+                .fillMaxWidth()
+                .let { if (active) it.focusRequester(activeFocus) else it },
+              focusedScale = 1.02f,
+            ) {
+              Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    tpl.label,
+                    color = if (active) AppColors.AccentGreen else AppColors.TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                  )
+                  Spacer(Modifier.height(2.dp))
+                  Text(tpl.desc, color = AppColors.TextSecondary, fontSize = 11.sp)
+                }
+                if (active) {
+                  Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
               }
             }
           }

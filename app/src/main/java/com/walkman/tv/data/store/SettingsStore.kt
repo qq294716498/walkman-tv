@@ -47,11 +47,39 @@ enum class ThemeColor(
     CYAN("青碧", 0xFF2DD4BF, 0xFF5EEAD4, 0xFF14B8A6),
 }
 
-/** Lyric rendering styles in PlayerScreen (TV-optimised native Compose). */
+/** Lyric rendering styles in PlayerScreen. */
 @Serializable
 enum class LyricStyle(val label: String) {
     CLASSIC("经典"),
     APPLE("类苹果 (AMLL)"),
+    FOLIA_WEBVIEW("Folia 舞台 (WebView)"),
+}
+
+/** All 18 Folia lyric visualizer templates (Plan B WebView GPU stage). */
+@Serializable
+enum class FoliaTemplate(
+    val id: String,
+    val label: String,
+    val desc: String,
+) {
+    CLASSIC("classic", "经典 · Classic", "居中流光高亮与柔和渐变舞台"),
+    STILL("still", "静止 · Still", "歌词静止在画面中央，无动画最省资源"),
+    CADENZA("cadenza", "心象 · Cadenza", "整句拆成单字散落画面，如脑海浮起的碎片"),
+    PARTITA("partita", "云阶 · Partita", "沿引导线逐块错落下行，像云中阶梯"),
+    FUME("fume", "浮名 · Fume", "满屏歌词层层堆叠，镜头追随当前句浮沉"),
+    CAPPELLA("cappella", "群唱 · Cappella", "聊天气泡左右往返，像一场对唱"),
+    TILT("tilt", "倾诉 · Tilt", "自动断行与倾斜强调，如凑近低声倾诉"),
+    CLADDAGH("claddagh", "回环 · Claddagh", "沿倾斜 3D 圆环轨道循环推进，纵深感强"),
+    MONET("monet", "莫奈 · Monet", "海报式版面：左侧歌词轨、右侧封面、底部频谱"),
+    DIORAMA("diorama", "镜台 · Diorama", "点阵化文字在 3D 空间穿行，镜头跟随运镜"),
+    PENDOLO("pendolo", "时计 · Pendolo", "封面嵌入钟表盘，歌词沿弧线随擒纵推进"),
+    SONNET("sonnet", "商籁 · Sonnet", "短线、边框与镂空巨字铺开，如翻动诗稿"),
+    TEMPERA("tempera", "凝彩 · Tempera", "色块与细密网点重组，文字压过色块反色"),
+    LUMIERE("lumiere", "绘光 · Lumiere", "体积光束穿过烟雾浮尘，逐字照亮刻字"),
+    NEBBIA("nebbia", "雾笺 · Nebbia", "毛玻璃与水雾层叠，当前句拨雾浮现"),
+    METAPHOR("metaphor", "隐喻 · Metaphor", "极简电影画幅与几何引导线，强烈留白对比"),
+    HANABI("hanabi", "花火 · Hanabi", "夜空粒子花火随乐句与节拍绽放"),
+    MACHI("machi", "町景 · Machi", "都市夜色霓虹灯牌构图与动态运镜"),
 }
 
 @Serializable
@@ -74,6 +102,10 @@ data class Settings(
     /** AI / Smart ambient theme: dynamically adapts player backdrop, waveform, and lyric glow
      *  to each song's cover palette and lyric mood. */
     val aiThemeEnabled: Boolean = true,
+    /** Experimental Plan B: WebView WebGL/Canvas GPU lyric stage reproducing all 18 Folia templates.
+     *  Off by default; requires explicit opt-in from Settings due to high GPU/RAM requirements. */
+    val foliaWebViewEnabled: Boolean = false,
+    val foliaTemplate: FoliaTemplate = FoliaTemplate.FUME,
     /** Player screen: hide progress bar + transport after a few idle seconds; any D-pad / OK key
      *  brings them back. Off by default. */
     val autoHidePlayerControls: Boolean = false,
