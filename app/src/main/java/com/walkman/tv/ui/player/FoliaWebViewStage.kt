@@ -2,12 +2,23 @@ package com.walkman.tv.ui.player
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -15,10 +26,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.tv.material3.Text
 import com.walkman.tv.data.model.Track
 import com.walkman.tv.data.store.FoliaBackground
 import com.walkman.tv.data.store.FoliaRenderQuality
@@ -29,15 +44,17 @@ import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 
-private const val FOLIA_ORIGIN_HOST = "folia.local"
-private const val FOLIA_ENTRY_URL = "https://$FOLIA_ORIGIN_HOST/tv-stage.html"
+private const val TAG = "FoliaWebViewStage"
+private const val FOLIA_ORIGIN_HOST = "appassets.androidplatform.net"
+private const val FOLIA_ASSET_PREFIX = "/assets/folia/"
+private const val FOLIA_ENTRY_URL = "https://$FOLIA_ORIGIN_HOST${FOLIA_ASSET_PREFIX}tv-stage.html"
 
 /**
  * Plan B WebView GPU stage hosting the genuine `whycfawa/folia-android` visualizer engine
  * (PixiJS v8 + Three.js + GLSL shaders + all 18 official templates & 6 backgrounds).
  *
- * Served offline from `assets/folia/` via a virtual HTTPS origin (`https://folia.local/`) so
- * ES modules, dynamic chunk imports, WebGL2 shaders, and fetch() work identically to a real server.
+ * Served offline from `assets/folia/` via Android's reserved `appassets.androidplatform.net`
+ * virtual HTTPS origin so ES modules, dynamic chunks, WebGL2 shaders, and fetch() work offline.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -62,6 +79,9 @@ fun FoliaWebViewStage(
     val controller = appContainer.playbackController
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var pageReady by remember { mutableStateOf(false) }
+    var jsReady by remember { mutableStateOf(false) }
+    var stageError by remember { mutableStateOf<String?>(null) }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
     val stateJson = remember(
         track.id,
@@ -100,11 +120,14 @@ fun FoliaWebViewStage(
         )
     }
 
-    LaunchedEffect(pageReady, stateJson, webViewRef) {
+    LaunchedEffect(pageReady, jsReady, stateJson, webViewRef) {
         val wv = webViewRef ?: return@LaunchedEffect
-        if (!pageReady) return@LaunchedEffect
+        if (!pageReady && !jsReady) return@LaunchedEffect
+        val safeJson = stateJson
+            .replace("\u2028", "\\u2028")
+            .replace("\u2029", "\\u2029")
         wv.evaluateJavascript(
-            "if(window.__foliaState){window.__foliaState($stateJson);}else{window.__foliaPendingState=$stateJson;}",
+            "if(window.__foliaState){window.__foliaState($safeJson);}else{window.__foliaPendingState=$safeJson;}",
             null,
         )
         val pos = controller.player.currentPosition.coerceAtLeast(0L)
@@ -114,9 +137,9 @@ fun FoliaWebViewStage(
         )
     }
 
-    LaunchedEffect(pageReady, isPlaying, webViewRef) {
+    LaunchedEffect(pageReady, jsReady, isPlaying, webViewRef) {
         val wv = webViewRef ?: return@LaunchedEffect
-        if (!pageReady) return@LaunchedEffect
+        if (!pageReady && !jsReady) return@LaunchedEffect
         while (true) {
             val pos = controller.player.currentPosition.coerceAtLeast(0L)
             val level = controller.audioLevel.value.coerceIn(0f, 1f)
@@ -131,6 +154,7 @@ fun FoliaWebViewStage(
     DisposableEffect(Unit) {
         onDispose {
             webViewRef?.apply {
+                removeJavascriptInterface("FoliaNative")
                 stopLoading()
                 loadUrl("about:blank")
                 destroy()
@@ -139,49 +163,108 @@ fun FoliaWebViewStage(
         }
     }
 
-    AndroidView(
-        modifier = modifier,
-        factory = { ctx ->
-            WebView(ctx).apply {
-                setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                setBackgroundColor(android.graphics.Color.BLACK)
-                isFocusable = false
-                isFocusableInTouchMode = false
-                isClickable = false
-                isLongClickable = false
-                overScrollMode = View.OVER_SCROLL_NEVER
-                settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    allowFileAccess = true
-                    allowContentAccess = true
-                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                    cacheMode = WebSettings.LOAD_DEFAULT
-                    mediaPlaybackRequiresUserGesture = false
-                }
-                webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(
-                        view: WebView?,
-                        request: WebResourceRequest?,
-                    ): WebResourceResponse? {
-                        val uri = request?.url ?: return null
-                        if (uri.host != FOLIA_ORIGIN_HOST) return null
-                        return serveFoliaAsset(ctx, uri.path ?: "/tv-stage.html")
+    Box(modifier = modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
+                    // IMPORTANT: Do NOT force LAYER_TYPE_HARDWARE here — WebView uses Chromium's
+                    // native GPU compositor by default, and forcing an offscreen hardware layer
+                    // breaks WebGL canvas compositing (black screen) on many Android TV GPUs.
+                    setBackgroundColor(android.graphics.Color.parseColor("#070A12"))
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    isClickable = false
+                    isLongClickable = false
+                    overScrollMode = View.OVER_SCROLL_NEVER
+                    settings.apply {
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        databaseEnabled = true
+                        allowFileAccess = true
+                        allowContentAccess = true
+                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                        cacheMode = WebSettings.LOAD_DEFAULT
+                        mediaPlaybackRequiresUserGesture = false
+                        useWideViewPort = true
+                        loadWithOverviewMode = true
                     }
+                    addJavascriptInterface(
+                        object {
+                            @JavascriptInterface
+                            fun onReady() {
+                                mainHandler.post { jsReady = true }
+                            }
+                        },
+                        "FoliaNative",
+                    )
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                            if (msg.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                                Log.e(TAG, "JS ERROR: ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
+                                mainHandler.post {
+                                    if (stageError == null && !msg.message().contains("ReadPixels")) {
+                                        stageError = msg.message()
+                                    }
+                                }
+                            }
+                            return true
+                        }
+                    }
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldInterceptRequest(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                        ): WebResourceResponse? {
+                            val uri = request?.url ?: return null
+                            if (uri.host != FOLIA_ORIGIN_HOST) return null
+                            return serveFoliaAsset(ctx, uri.path ?: "${FOLIA_ASSET_PREFIX}tv-stage.html")
+                        }
 
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        pageReady = true
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            pageReady = true
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?,
+                        ) {
+                            if (request?.isForMainFrame == true) {
+                                val desc = error?.description?.toString() ?: "load error"
+                                Log.e(TAG, "WebView main frame error: $desc")
+                                mainHandler.post { stageError = desc }
+                            }
+                        }
                     }
+                    webViewRef = this
+                    loadUrl(FOLIA_ENTRY_URL)
                 }
-                webViewRef = this
-                loadUrl(FOLIA_ENTRY_URL)
-            }
-        },
-    )
+            },
+        )
+
+        stageError?.let { err ->
+            Text(
+                text = "Folia WebView 诊断：$err",
+                color = Color(0xFFFCA5A5),
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
+            )
+        }
+    }
 }
 
 private fun serveFoliaAsset(context: Context, rawPath: String): WebResourceResponse {
-    val clean = rawPath.trimStart('/').ifEmpty { "tv-stage.html" }
+    val clean = when {
+        rawPath.startsWith(FOLIA_ASSET_PREFIX) -> rawPath.removePrefix(FOLIA_ASSET_PREFIX)
+        else -> rawPath.trimStart('/')
+    }.ifEmpty { "tv-stage.html" }
     val assetPath = "folia/$clean"
     val headers = mapOf(
         "Access-Control-Allow-Origin" to "*",
@@ -190,11 +273,18 @@ private fun serveFoliaAsset(context: Context, rawPath: String): WebResourceRespo
     return try {
         val stream = context.assets.open(assetPath)
         val mime = guessMimeType(clean)
-        WebResourceResponse(mime, "UTF-8", 200, "OK", headers, stream)
+        val encoding = if (isTextMime(mime)) "UTF-8" else null
+        WebResourceResponse(mime, encoding, 200, "OK", headers, stream)
     } catch (_: Throwable) {
         WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", headers, null)
     }
 }
+
+private fun isTextMime(mime: String): Boolean =
+    mime.startsWith("text/") ||
+        mime == "application/javascript" ||
+        mime == "application/json" ||
+        mime == "image/svg+xml"
 
 private fun guessMimeType(path: String): String {
     val lower = path.lowercase()

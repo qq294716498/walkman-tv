@@ -10,6 +10,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -285,6 +287,21 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
         )
       }
     }
+
+    // 支持鼠标/触屏/飞鼠点击空白画面唤醒隐藏的播放菜单，同时保持非聚焦状态避免干扰遥控器方向键焦点。
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .pointerInput(Unit) {
+          detectTapGestures {
+            idleTick++
+            if (!controlsVisible) {
+              controlsVisible = true
+              scope.launch { tryRequestFocus(playFocus) }
+            }
+          }
+        }
+    )
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 32.dp)) {
       if (isFoliaWebViewActive) {
