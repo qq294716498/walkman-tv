@@ -2,6 +2,7 @@ package com.walkman.tv.ui
 
 /** Top-nav sections, mirroring the RN TV app's NAV_MENUS. */
 enum class NavSection(val label: String) {
+    CloudLibrary("登录歌单"),
     Recommend("推荐"),
     Leaderboard("排行榜"),
     Songlist("歌单"),

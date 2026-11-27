@@ -120,6 +120,7 @@ fun RootScreen(modifier: Modifier = Modifier) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp)) {
                     val openPlayer = { showPlayer = true }
                     when (section) {
+                        NavSection.CloudLibrary -> com.walkman.tv.ui.recommend.CloudLibraryScreen(onOpenPlayer = openPlayer)
                         NavSection.Recommend -> RecommendScreen(onNavigate = { section = it }, onOpenPlayer = openPlayer)
                         NavSection.Search -> SearchScreen(onOpenPlayer = openPlayer)
                         NavSection.Leaderboard -> LeaderboardScreen(onOpenPlayer = openPlayer)

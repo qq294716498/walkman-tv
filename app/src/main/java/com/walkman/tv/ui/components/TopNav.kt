@@ -66,12 +66,13 @@ fun TopNav(
         // Left: brand
         Brand(modifier = Modifier.align(Alignment.CenterStart))
 
-        // Center: 6 nav items
+        // Center: 7 nav items ("登录歌单" on the left of "推荐"; default landing remains "推荐")
         Row(
             modifier = Modifier.align(Alignment.Center),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            NavItem("登录歌单", active == NavSection.CloudLibrary) { onSelect(NavSection.CloudLibrary) }
             NavItem("推荐", active == NavSection.Recommend, focusRequester = recommendFocusRequester) {
                 onSelect(NavSection.Recommend)
             }
