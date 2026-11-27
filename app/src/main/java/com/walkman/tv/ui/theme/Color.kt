@@ -26,7 +26,7 @@ object AppColors {
     val CardElevated = Color(0xFF333744)
 
     /** Active accent theme; backed by Compose Snapshot state so changing it in Settings recomposes live. */
-    var themeColor by mutableStateOf(ThemeColor.GREEN)
+    var themeColor by mutableStateOf(ThemeColor.BLUE)
 
     // ── Brand (single hue, three intensities). UI binds to semantic aliases below. ────────
     val BrandPrimary: Color get() = Color(themeColor.primaryArgb)
