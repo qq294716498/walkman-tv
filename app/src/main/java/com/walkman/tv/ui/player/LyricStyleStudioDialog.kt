@@ -563,13 +563,60 @@ private fun BackgroundsPane(
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(4.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
         item(span = { GridItemSpan(2) }) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                TvFocusable(
+                    onClick = { onUpdateSettings { it.copy(foliaDaylight = !it.foliaDaylight) } },
+                    modifier = Modifier.weight(1f),
+                    focusedScale = 1.02f,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (settings.foliaDaylight) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.05f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("昼/夜模式（Daylight）", color = AppColors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(if (settings.foliaDaylight) "当前：浅色艺术画廊风" else "当前：深色影院沉浸风", color = AppColors.TextSecondary, fontSize = 10.sp)
+                        }
+                        Text(if (settings.foliaDaylight) "浅色 ☀" else "深色 ☾", color = bright, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                TvFocusable(
+                    onClick = { onUpdateSettings { it.copy(foliaBgStatic = !it.foliaBgStatic) } },
+                    modifier = Modifier.weight(1f),
+                    focusedScale = 1.02f,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (settings.foliaBgStatic) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.05f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("静态背景节能", color = AppColors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("背景静止不动，大幅降低 GPU 负载", color = AppColors.TextSecondary, fontSize = 10.sp)
+                        }
+                        Text(if (settings.foliaBgStatic) "已开启" else "已关闭", color = if (settings.foliaBgStatic) bright else AppColors.TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+        item(span = { GridItemSpan(2) }) {
             Text(
-                "选择 Folia 舞台动态背景（共 6 种，与当前模板实时叠加）",
+                "Folia 原版动态背景着色器（6 种，与当前模板实时叠加）",
                 color = AppColors.TextSecondary,
                 fontSize = 12.sp,
             )
@@ -606,7 +653,7 @@ private fun BackgroundsPane(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(26.dp)
+                            .height(22.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(
                                 Brush.horizontalGradient(
@@ -614,12 +661,12 @@ private fun BackgroundsPane(
                                 )
                             ),
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             bg.label,
                             color = if (active) Color.White else AppColors.TextPrimary,
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f),
                         )
@@ -627,11 +674,11 @@ private fun BackgroundsPane(
                             Text("当前 ✓", color = bright, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                    Spacer(Modifier.height(3.dp))
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         bg.desc,
                         color = AppColors.TextSecondary,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -732,11 +779,34 @@ private fun AiThemePane(
         }
 
         item(span = { GridItemSpan(2) }) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("字体风格", color = AppColors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                com.walkman.tv.data.store.FoliaFontStyle.entries.forEach { fs ->
+                    TvPill(
+                        onClick = { onUpdateSettings { it.copy(foliaFontStyle = fs) } },
+                        selected = settings.foliaFontStyle == fs,
+                        accent = accent,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(fs.label, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        item(span = { GridItemSpan(2) }) {
             Text(
-                "AI 风格配色方案（支持自动随歌，或锁定专属艺术色盘）",
+                "AI 风格色盘（支持自动随歌，或锁定专属艺术主题）",
                 color = AppColors.TextSecondary,
                 fontSize = 12.sp,
-                modifier = Modifier.padding(top = 2.dp),
             )
         }
 
@@ -813,9 +883,55 @@ private fun EffectsPane(
         modifier = Modifier.fillMaxSize(),
     ) {
         item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .padding(14.dp),
+            ) {
+                Text("歌词字号缩放（Font Scale）", color = AppColors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    com.walkman.tv.data.store.FoliaFontScale.entries.forEach { sc ->
+                        TvPill(
+                            onClick = { onUpdateSettings { it.copy(foliaFontScale = sc) } },
+                            selected = settings.foliaFontScale == sc,
+                            accent = accent,
+                        ) {
+                            Text(sc.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .padding(14.dp),
+            ) {
+                Text("动画律动强度（Animation Intensity）", color = AppColors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    com.walkman.tv.data.store.FoliaAnimIntensity.entries.forEach { inten ->
+                        TvPill(
+                            onClick = { onUpdateSettings { it.copy(foliaAnimIntensity = inten) } },
+                            selected = settings.foliaAnimIntensity == inten,
+                            accent = accent,
+                        ) {
+                            Text(inten.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+        item {
             StudioToggleItem(
                 title = "智能节拍律动（Beat Reactive）",
-                desc = "背景光晕、镜台缩放与粒子随音乐实时能量律动",
+                desc = "驱动 5 频段与 64 段频谱，画面光晕与粒子随节拍脉冲",
                 checked = settings.foliaBeatReactive,
                 accent = accent,
                 bright = bright,
@@ -824,32 +940,12 @@ private fun EffectsPane(
         }
         item {
             StudioToggleItem(
-                title = "歌词辉光特效（Word Glow）",
-                desc = "为当前句开启柔光弥散与体积光效，关闭可减轻 GPU 负担",
-                checked = settings.foliaGlowEnabled,
+                title = "底部翻译字幕条（默认关闭）",
+                desc = "开启后在画面底部以透明柔光文字显示外语歌词中文翻译",
+                checked = settings.foliaShowBottomSubtitle,
                 accent = accent,
                 bright = bright,
-                onClick = { onUpdateSettings { it.copy(foliaGlowEnabled = !it.foliaGlowEnabled) } },
-            )
-        }
-        item {
-            StudioToggleItem(
-                title = "电影胶片质感（Film Grain）",
-                desc = "在流体极光着色器上叠加细微胶片颗粒与暗角",
-                checked = settings.foliaFilmGrain,
-                accent = accent,
-                bright = bright,
-                onClick = { onUpdateSettings { it.copy(foliaFilmGrain = !it.foliaFilmGrain) } },
-            )
-        }
-        item {
-            StudioToggleItem(
-                title = "显示外语歌词翻译",
-                desc = "在当前歌词下方同步显示中文翻译",
-                checked = settings.showLyricTranslation,
-                accent = accent,
-                bright = bright,
-                onClick = { onUpdateSettings { it.copy(showLyricTranslation = !it.showLyricTranslation) } },
+                onClick = { onUpdateSettings { it.copy(foliaShowBottomSubtitle = !it.foliaShowBottomSubtitle) } },
             )
         }
         item {
@@ -860,18 +956,18 @@ private fun EffectsPane(
                     .background(Color.White.copy(alpha = 0.05f))
                     .padding(14.dp),
             ) {
-                Text("渲染画质档位（流畅度 vs 清晰度）", color = AppColors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("渲染分辨率档位（流畅度 vs 清晰度）", color = AppColors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
-                Text("若电视出现掉帧，切换为「性能优先」可大幅提升帧率", color = AppColors.TextSecondary, fontSize = 11.sp)
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("电视若出现掉帧，切到「0.5× 性能优先」可大幅提升帧率", color = AppColors.TextSecondary, fontSize = 11.sp)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FoliaRenderQuality.entries.forEach { q ->
                         TvPill(
                             onClick = { onUpdateSettings { it.copy(foliaRenderQuality = q) } },
                             selected = settings.foliaRenderQuality == q,
                             accent = accent,
                         ) {
-                            Text(q.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(q.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }

@@ -121,9 +121,34 @@ enum class FoliaAiPalette(
 /** WebView stage rendering resolution scale to tune TV smoothness vs sharpness. */
 @Serializable
 enum class FoliaRenderQuality(val label: String, val scale: Float) {
-    PERFORMANCE("性能优先", 0.55f),
-    BALANCED("均衡推荐", 0.80f),
-    ULTRA("极致清晰", 1.0f),
+    PERFORMANCE("0.5× 性能优先", 0.5f),
+    BALANCED("0.75× 均衡推荐", 0.75f),
+    ULTRA("1.0× 原生清晰", 1.0f),
+}
+
+/** Folia typography family style. */
+@Serializable
+enum class FoliaFontStyle(val id: String, val label: String) {
+    SANS("sans", "无衬线 · 现代"),
+    SERIF("serif", "衬线 · 诗意"),
+    MONO("mono", "等宽 · 机械"),
+}
+
+/** Folia animation intensity preset. */
+@Serializable
+enum class FoliaAnimIntensity(val id: String, val label: String) {
+    CALM("calm", "舒缓"),
+    NORMAL("normal", "标准"),
+    CHAOTIC("chaotic", "狂放"),
+}
+
+/** Folia lyric font size scale. */
+@Serializable
+enum class FoliaFontScale(val label: String, val scale: Float) {
+    SMALL("紧凑 0.85×", 0.85f),
+    NORMAL("标准 1.0×", 1.0f),
+    LARGE("放大 1.15×", 1.15f),
+    XLARGE("巨幕 1.3×", 1.30f),
 }
 
 @Serializable
@@ -156,6 +181,13 @@ data class Settings(
     val foliaGlowEnabled: Boolean = true,
     val foliaFilmGrain: Boolean = true,
     val foliaRenderQuality: FoliaRenderQuality = FoliaRenderQuality.BALANCED,
+    /** Bottom translation subtitle overlay in Folia stage — OFF by default so no box covers the bottom stage. */
+    val foliaShowBottomSubtitle: Boolean = false,
+    val foliaDaylight: Boolean = false,
+    val foliaBgStatic: Boolean = false,
+    val foliaFontStyle: FoliaFontStyle = FoliaFontStyle.SANS,
+    val foliaAnimIntensity: FoliaAnimIntensity = FoliaAnimIntensity.NORMAL,
+    val foliaFontScale: FoliaFontScale = FoliaFontScale.NORMAL,
     /** Player screen: hide progress bar + transport after a few idle seconds; any D-pad / OK key
      *  brings them back. Off by default. */
     val autoHidePlayerControls: Boolean = false,

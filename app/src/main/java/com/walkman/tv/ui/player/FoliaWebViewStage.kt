@@ -67,8 +67,13 @@ fun FoliaWebViewStage(
     glowEnabled: Boolean,
     filmGrain: Boolean,
     renderQuality: FoliaRenderQuality,
+    showBottomSubtitle: Boolean,
+    isDaylight: Boolean,
+    bgStatic: Boolean,
+    fontStyle: com.walkman.tv.data.store.FoliaFontStyle,
+    animIntensity: com.walkman.tv.data.store.FoliaAnimIntensity,
+    fontScale: com.walkman.tv.data.store.FoliaFontScale,
     moodLabel: String,
-    showTranslation: Boolean,
     isPlaying: Boolean,
     accentColor: Color,
     brightColor: Color,
@@ -95,8 +100,13 @@ fun FoliaWebViewStage(
         glowEnabled,
         filmGrain,
         renderQuality,
+        showBottomSubtitle,
+        isDaylight,
+        bgStatic,
+        fontStyle,
+        animIntensity,
+        fontScale,
         moodLabel,
-        showTranslation,
         accentColor,
         brightColor,
         orbPrimary,
@@ -111,8 +121,13 @@ fun FoliaWebViewStage(
             glowEnabled = glowEnabled,
             filmGrain = filmGrain,
             renderQuality = renderQuality,
+            showBottomSubtitle = showBottomSubtitle,
+            isDaylight = isDaylight,
+            bgStatic = bgStatic,
+            fontStyle = fontStyle,
+            animIntensity = animIntensity,
+            fontScale = fontScale,
             moodLabel = moodLabel,
-            showTranslation = showTranslation,
             accent = accentColor,
             bright = brightColor,
             orb1 = if (orbPrimary.alpha > 0.05f) orbPrimary else Color(0xFF1E3A8A),
@@ -156,6 +171,8 @@ fun FoliaWebViewStage(
             webViewRef?.apply {
                 removeJavascriptInterface("FoliaNative")
                 stopLoading()
+                onPause()
+                clearHistory()
                 loadUrl("about:blank")
                 destroy()
             }
@@ -319,8 +336,13 @@ private fun buildStateJson(
     glowEnabled: Boolean,
     filmGrain: Boolean,
     renderQuality: FoliaRenderQuality,
+    showBottomSubtitle: Boolean,
+    isDaylight: Boolean,
+    bgStatic: Boolean,
+    fontStyle: com.walkman.tv.data.store.FoliaFontStyle,
+    animIntensity: com.walkman.tv.data.store.FoliaAnimIntensity,
+    fontScale: com.walkman.tv.data.store.FoliaFontScale,
     moodLabel: String,
-    showTranslation: Boolean,
     accent: Color,
     bright: Color,
     orb1: Color,
@@ -333,8 +355,13 @@ private fun buildStateJson(
     root.put("glowEnabled", glowEnabled)
     root.put("filmGrain", filmGrain)
     root.put("renderScale", renderQuality.scale.toDouble())
+    root.put("showBottomSubtitle", showBottomSubtitle)
+    root.put("isDaylight", isDaylight)
+    root.put("bgStatic", bgStatic)
+    root.put("fontStyle", fontStyle.id)
+    root.put("animIntensity", animIntensity.id)
+    root.put("fontScale", fontScale.scale.toDouble())
     root.put("moodLabel", moodLabel)
-    root.put("showTrans", showTranslation)
     root.put("accent", accent.toHexRgb())
     root.put("bright", bright.toHexRgb())
     root.put("orb1", orb1.toHexRgb())

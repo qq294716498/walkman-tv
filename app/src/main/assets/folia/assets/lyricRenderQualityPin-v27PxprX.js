@@ -1,1 +1,0 @@
-import{r as e}from"./rolldown-runtime-hePW80VL.js";import{t}from"./react-Cvdyeg_0.js";import{Gt as n}from"./stage-v-L5F9ZD.js";var r=e(t(),1),i=(0,r.createContext)(null),a=()=>(0,r.useContext)(i),o=(0,r.createContext)(null),s=()=>{let e=a(),t=(0,r.useContext)(o),i=n(e=>e.lyricRenderQuality);return e??t??i};export{a as n,s as t};
