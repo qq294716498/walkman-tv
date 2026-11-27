@@ -192,13 +192,28 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
   }
 
   var songTheme by remember { mutableStateOf<SongTheme?>(null) }
-  LaunchedEffect(track?.id, lyrics.size, settings.aiThemeEnabled) {
+  var aiRemixSeed by remember { mutableStateOf(0) }
+  LaunchedEffect(track?.id, lyrics.size, settings.aiThemeEnabled, settings.foliaAiPalette, aiRemixSeed) {
     if (!settings.aiThemeEnabled || track == null) {
       songTheme = null
       return@LaunchedEffect
     }
-    songTheme = SongThemeEngine.resolve(context, track, lyrics)
+    songTheme = when {
+      settings.foliaAiPalette != com.walkman.tv.data.store.FoliaAiPalette.AUTO -> {
+        val p = settings.foliaAiPalette
+        SongTheme(
+          accent = Color(p.accentArgb),
+          bright = Color(p.brightArgb),
+          orbPrimary = Color(p.orb1Argb),
+          orbSecondary = Color(p.orb2Argb),
+          moodLabel = p.label,
+        )
+      }
+      aiRemixSeed > 0 -> SongThemeEngine.remix(aiRemixSeed + track.id.hashCode())
+      else -> SongThemeEngine.resolve(context, track, lyrics)
+    }
   }
+  LaunchedEffect(track?.id) { aiRemixSeed = 0 }
   val activeTheme = if (settings.aiThemeEnabled) songTheme else null
   val effectiveAccent by androidx.compose.animation.animateColorAsState(
     targetValue = activeTheme?.accent ?: AppColors.AccentGreen,
@@ -242,6 +257,12 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
         track = track,
         lyrics = lyrics,
         template = settings.foliaTemplate,
+        background = settings.foliaBackground,
+        beatReactive = settings.foliaBeatReactive,
+        glowEnabled = settings.foliaGlowEnabled,
+        filmGrain = settings.foliaFilmGrain,
+        renderQuality = settings.foliaRenderQuality,
+        moodLabel = activeTheme?.moodLabel ?: "",
         showTranslation = settings.showLyricTranslation,
         isPlaying = state.isPlaying,
         accentColor = effectiveAccent,
@@ -443,29 +464,15 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
       )
     }
     if (showLyricStyleDialog) {
-      LyricStylePickerDialog(
-        current = settings.lyricStyle,
-        foliaWebViewEnabled = settings.foliaWebViewEnabled,
-        currentFoliaTemplate = settings.foliaTemplate,
-        aiThemeEnabled = settings.aiThemeEnabled,
-        onToggleAiTheme = {
-          scope.launch { appContainer.settingsStore.update { it.copy(aiThemeEnabled = !it.aiThemeEnabled) } }
+      LyricStyleStudioDialog(
+        settings = settings,
+        currentMoodLabel = activeTheme?.moodLabel,
+        currentAccent = effectiveAccent,
+        currentBright = effectiveBright,
+        onUpdateSettings = { transform ->
+          scope.launch { appContainer.settingsStore.update(transform) }
         },
-        onSelect = { style ->
-          showLyricStyleDialog = false
-          scope.launch { appContainer.settingsStore.update { it.copy(lyricStyle = style) } }
-        },
-        onSelectFoliaTemplate = { tpl ->
-          showLyricStyleDialog = false
-          scope.launch {
-            appContainer.settingsStore.update {
-              it.copy(
-                lyricStyle = com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW,
-                foliaTemplate = tpl,
-              )
-            }
-          }
-        },
+        onRemixAiPalette = { aiRemixSeed++ },
         onDismiss = { showLyricStyleDialog = false },
       )
     }
@@ -773,192 +780,6 @@ private fun QualityPickerDialog(
                 Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
               } else if (isPreferred) {
                 Text("偏好", color = AppColors.TextMuted, fontSize = 11.sp)
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-@Composable
-private fun LyricStylePickerDialog(
-  current: com.walkman.tv.data.store.LyricStyle,
-  foliaWebViewEnabled: Boolean,
-  currentFoliaTemplate: com.walkman.tv.data.store.FoliaTemplate,
-  aiThemeEnabled: Boolean,
-  onToggleAiTheme: () -> Unit,
-  onSelect: (com.walkman.tv.data.store.LyricStyle) -> Unit,
-  onSelectFoliaTemplate: (com.walkman.tv.data.store.FoliaTemplate) -> Unit,
-  onDismiss: () -> Unit,
-) {
-  val activeFocus = remember { FocusRequester() }
-  LaunchedEffect(Unit) {
-    delay(60)
-    runCatching { activeFocus.requestFocus() }
-  }
-  androidx.compose.ui.window.Dialog(
-    onDismissRequest = onDismiss,
-    properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-  ) {
-    Column(
-      modifier = Modifier
-        .width(if (foliaWebViewEnabled) 480.dp else 420.dp)
-        .clip(RoundedCornerShape(16.dp))
-        .background(AppColors.BgPanel)
-        .padding(horizontal = 22.dp, vertical = 18.dp),
-    ) {
-      Text("歌词样式与氛围主题", color = AppColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-      Spacer(Modifier.height(4.dp))
-      Text("选择歌词样式或开关 AI 随歌配色，立即生效", color = AppColors.TextSecondary, fontSize = 12.sp)
-      Spacer(Modifier.height(12.dp))
-      TvFocusable(
-        onClick = onToggleAiTheme,
-        modifier = Modifier.fillMaxWidth(),
-        focusedScale = 1.02f,
-      ) {
-        Row(
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              "✦ AI 氛围主题（随歌配色）",
-              color = if (aiThemeEnabled) AppColors.AccentGreen else AppColors.TextPrimary,
-              fontSize = 14.sp,
-              fontWeight = FontWeight.Bold,
-            )
-            Text("按封面主色与歌词情绪自动生成氛围背景", color = AppColors.TextSecondary, fontSize = 11.sp)
-          }
-          Text(
-            if (aiThemeEnabled) "已开启" else "已关闭",
-            color = if (aiThemeEnabled) AppColors.AccentGreen else AppColors.TextMuted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-          )
-        }
-      }
-      Spacer(Modifier.height(10.dp))
-
-      val baseStyles = listOf(
-        com.walkman.tv.data.store.LyricStyle.CLASSIC to "居中简洁排版，经典高亮",
-        com.walkman.tv.data.store.LyricStyle.APPLE to "左对齐粗体 + 弹簧缩放 + 60fps 像素扫光",
-      )
-
-      if (!foliaWebViewEnabled) {
-        Column(
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-          modifier = Modifier.fillMaxWidth(),
-        ) {
-          baseStyles.forEach { (style, desc) ->
-            val active = style == current
-            TvFocusable(
-              onClick = { onSelect(style) },
-              modifier = Modifier
-                .fillMaxWidth()
-                .let { if (active) it.focusRequester(activeFocus) else it },
-              focusedScale = 1.02f,
-            ) {
-              Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                Column(modifier = Modifier.weight(1f)) {
-                  Text(
-                    style.label,
-                    color = if (active) AppColors.AccentGreen else AppColors.TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
-                  )
-                  Spacer(Modifier.height(2.dp))
-                  Text(desc, color = AppColors.TextSecondary, fontSize = 11.sp)
-                }
-                if (active) {
-                  Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-              }
-            }
-          }
-        }
-        Spacer(Modifier.height(10.dp))
-        Text(
-          "提示：如需体验 Folia 全部 18 款动态舞台模板，请前往「设置 → Folia 渲染引擎」开启（性能要求极高）。",
-          color = AppColors.TextMuted,
-          fontSize = 11.sp,
-          lineHeight = 16.sp,
-        )
-      } else {
-        LazyColumn(
-          verticalArrangement = Arrangement.spacedBy(6.dp),
-          modifier = Modifier.fillMaxWidth().height(380.dp),
-          contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp, horizontal = 4.dp),
-        ) {
-          itemsIndexed(baseStyles) { _, (style, desc) ->
-            val active = style == current
-            TvFocusable(
-              onClick = { onSelect(style) },
-              modifier = Modifier
-                .fillMaxWidth()
-                .let { if (active) it.focusRequester(activeFocus) else it },
-              focusedScale = 1.02f,
-            ) {
-              Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                Column(modifier = Modifier.weight(1f)) {
-                  Text(
-                    style.label,
-                    color = if (active) AppColors.AccentGreen else AppColors.TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
-                  )
-                  Spacer(Modifier.height(2.dp))
-                  Text(desc, color = AppColors.TextSecondary, fontSize = 11.sp)
-                }
-                if (active) {
-                  Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-              }
-            }
-          }
-          item(key = "folia-header") {
-            Text(
-              "Folia WebView 舞台模板（18 款 · 全屏无转盘）",
-              color = AppColors.Warning,
-              fontSize = 12.sp,
-              fontWeight = FontWeight.Bold,
-              modifier = Modifier.padding(top = 8.dp, bottom = 2.dp, start = 4.dp),
-            )
-          }
-          itemsIndexed(com.walkman.tv.data.store.FoliaTemplate.entries) { _, tpl ->
-            val active = current == com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW &&
-              currentFoliaTemplate == tpl
-            TvFocusable(
-              onClick = { onSelectFoliaTemplate(tpl) },
-              modifier = Modifier
-                .fillMaxWidth()
-                .let { if (active) it.focusRequester(activeFocus) else it },
-              focusedScale = 1.02f,
-            ) {
-              Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                Column(modifier = Modifier.weight(1f)) {
-                  Text(
-                    tpl.label,
-                    color = if (active) AppColors.AccentGreen else AppColors.TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
-                  )
-                  Spacer(Modifier.height(2.dp))
-                  Text(tpl.desc, color = AppColors.TextSecondary, fontSize = 11.sp)
-                }
-                if (active) {
-                  Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
               }
             }
           }

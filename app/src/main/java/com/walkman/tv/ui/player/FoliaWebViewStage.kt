@@ -39,6 +39,12 @@ fun FoliaWebViewStage(
     track: Track,
     lyrics: List<LyricLine>,
     template: FoliaTemplate,
+    background: com.walkman.tv.data.store.FoliaBackground,
+    beatReactive: Boolean,
+    glowEnabled: Boolean,
+    filmGrain: Boolean,
+    renderQuality: com.walkman.tv.data.store.FoliaRenderQuality,
+    moodLabel: String,
     showTranslation: Boolean,
     isPlaying: Boolean,
     accentColor: Color,
@@ -58,6 +64,12 @@ fun FoliaWebViewStage(
         track.picURL,
         lyrics,
         template,
+        background,
+        beatReactive,
+        glowEnabled,
+        filmGrain,
+        renderQuality,
+        moodLabel,
         showTranslation,
         accentColor,
         brightColor,
@@ -68,6 +80,12 @@ fun FoliaWebViewStage(
             track = track,
             lyrics = lyrics,
             template = template,
+            background = background,
+            beatReactive = beatReactive,
+            glowEnabled = glowEnabled,
+            filmGrain = filmGrain,
+            renderQuality = renderQuality,
+            moodLabel = moodLabel,
             showTranslation = showTranslation,
             accent = accentColor,
             bright = brightColor,
@@ -147,6 +165,12 @@ private fun buildStateJson(
     track: Track,
     lyrics: List<LyricLine>,
     template: FoliaTemplate,
+    background: com.walkman.tv.data.store.FoliaBackground,
+    beatReactive: Boolean,
+    glowEnabled: Boolean,
+    filmGrain: Boolean,
+    renderQuality: com.walkman.tv.data.store.FoliaRenderQuality,
+    moodLabel: String,
     showTranslation: Boolean,
     accent: Color,
     bright: Color,
@@ -155,6 +179,12 @@ private fun buildStateJson(
 ): String {
     val root = JSONObject()
     root.put("template", template.id)
+    root.put("background", background.id)
+    root.put("beatReactive", beatReactive)
+    root.put("glowEnabled", glowEnabled)
+    root.put("filmGrain", filmGrain)
+    root.put("renderScale", renderQuality.scale.toDouble())
+    root.put("moodLabel", moodLabel)
     root.put("showTrans", showTranslation)
     root.put("accent", accent.toHexRgb())
     root.put("bright", bright.toHexRgb())

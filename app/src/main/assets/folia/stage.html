@@ -31,6 +31,12 @@
   // ======================== State ========================
   const S = {
     template: 'fume',
+    background: 'latent',
+    beatReactive: true,
+    glowEnabled: true,
+    filmGrain: true,
+    renderScale: 0.8,
+    moodLabel: '',
     track: { name: '', singer: '', picURL: '' },
     lyrics: [], // [{t, text, trans}]
     showTrans: true,
@@ -106,6 +112,7 @@
         uniform vec3 uOrb2;
         uniform vec3 uAccent;
         uniform float uStill;
+        uniform float uGrain;
 
         float wave(vec2 p, float t) {
           return sin(p.x * 2.4 + t * 0.45) * cos(p.y * 2.1 - t * 0.35)
@@ -133,11 +140,13 @@
           col = mix(col, uOrb2 * 0.68, clamp(m2 * 0.75, 0.0, 1.0));
           col += uAccent * glow * (0.24 + uLevel * 0.18);
 
-          // Vignette + subtle film grain
+          // Vignette + optional film grain
           float vig = 1.0 - smoothstep(0.45, 1.35, length(p));
           col *= (0.55 + 0.45 * vig);
-          float grain = fract(sin(dot(uv * 320.0 + uTime, vec2(12.9898, 78.233))) * 43758.5453);
-          col += (grain - 0.5) * 0.022;
+          if (uGrain > 0.5) {
+            float grain = fract(sin(dot(uv * 320.0 + uTime, vec2(12.9898, 78.233))) * 43758.5453);
+            col += (grain - 0.5) * 0.026;
+          }
 
           gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
         }
@@ -167,6 +176,7 @@
         uOrb2: gl.getUniformLocation(glProg, 'uOrb2'),
         uAccent: gl.getUniformLocation(glProg, 'uAccent'),
         uStill: gl.getUniformLocation(glProg, 'uStill'),
+        uGrain: gl.getUniformLocation(glProg, 'uGrain'),
       };
     } catch (_) {
       gl = null;
@@ -177,27 +187,29 @@
   function resize() {
     S.w = window.innerWidth || 1280;
     S.h = window.innerHeight || 720;
-    S.dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    // Render WebGL shader at half-res for smooth 60fps on Android TV GPUs
-    const bgScale = 0.5;
-    bgCanvas.width = Math.max(320, Math.floor(S.w * bgScale));
-    bgCanvas.height = Math.max(180, Math.floor(S.h * bgScale));
+    const effScale = clamp(S.renderScale || 0.8, 0.5, 1.0);
+    S.dpr = Math.min(window.devicePixelRatio || 1, 1.5) * effScale;
+    const bgScale = 0.45 * effScale;
+    bgCanvas.width = Math.max(240, Math.floor(S.w * bgScale));
+    bgCanvas.height = Math.max(135, Math.floor(S.h * bgScale));
     if (gl) gl.viewport(0, 0, bgCanvas.width, bgCanvas.height);
-    stageCanvas.width = Math.floor(S.w * S.dpr);
-    stageCanvas.height = Math.floor(S.h * S.dpr);
+    stageCanvas.width = Math.max(320, Math.floor(S.w * S.dpr));
+    stageCanvas.height = Math.max(180, Math.floor(S.h * S.dpr));
     ctx.setTransform(S.dpr, 0, 0, S.dpr, 0, 0);
   }
 
   function renderBg(tSec) {
-    const isStill = S.template === 'still';
+    const isStill = S.template === 'still' || S.background === 'pure';
+    const beatLvl = S.beatReactive ? S.smoothLevel : 0;
     if (gl && glProg) {
       const o1 = hexToRgb(S.orb1), o2 = hexToRgb(S.orb2), ac = hexToRgb(S.accent);
       gl.uniform1f(glLoc.uTime, tSec);
-      gl.uniform1f(glLoc.uLevel, S.smoothLevel);
+      gl.uniform1f(glLoc.uLevel, beatLvl);
       gl.uniform3f(glLoc.uOrb1, o1[0]/255, o1[1]/255, o1[2]/255);
       gl.uniform3f(glLoc.uOrb2, o2[0]/255, o2[1]/255, o2[2]/255);
       gl.uniform3f(glLoc.uAccent, ac[0]/255, ac[1]/255, ac[2]/255);
       gl.uniform1f(glLoc.uStill, isStill ? 1.0 : 0.0);
+      gl.uniform1f(glLoc.uGrain, S.filmGrain ? 1.0 : 0.0);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     } else if (bgCtx2d) {
       const bw = bgCanvas.width, bh = bgCanvas.height;
@@ -1108,6 +1120,75 @@
     }
   }
 
+  // Extra dynamic background layers for Folia's 6 background modes
+  function drawBackgroundLayer(tSec) {
+    if (S.template === 'still' || S.background === 'latent' || S.background === 'pure') return;
+    const W = S.w, H = S.h;
+    const beat = S.beatReactive ? S.smoothLevel : 0;
+    ctx.save();
+    if (S.background === 'common') {
+      // Soft blurred breathing cover wash
+      if (S.coverImg && S.coverImg.complete && S.coverImg.naturalWidth > 0) {
+        const sc = 1.16 + Math.sin(tSec * 0.32) * 0.04 + beat * 0.04;
+        const dw = Math.max(W, H) * sc;
+        ctx.globalAlpha = 0.28;
+        ctx.drawImage(S.coverImg, (W - dw) / 2, (H - dw) / 2, dw, dw);
+        ctx.globalAlpha = 1;
+        const scrim = ctx.createRadialGradient(W * 0.5, H * 0.5, W * 0.1, W * 0.5, H * 0.5, W * 0.72);
+        scrim.addColorStop(0, 'rgba(6,10,18,0.35)');
+        scrim.addColorStop(1, 'rgba(6,10,18,0.82)');
+        ctx.fillStyle = scrim;
+        ctx.fillRect(0, 0, W, H);
+      }
+    } else if (S.background === 'monet') {
+      // Painterly swirling impressionist pastel washes
+      for (let i = 0; i < 5; i++) {
+        const bx = W * (0.18 + 0.64 * hash(i * 17)) + Math.sin(tSec * (0.25 + i * 0.06) + i) * 110;
+        const by = H * (0.2 + 0.6 * hash(i * 29)) + Math.cos(tSec * (0.22 + i * 0.05) + i) * 75;
+        const br = Math.min(W, H) * (0.28 + 0.12 * hash(i * 5) + beat * 0.06);
+        const col = i % 2 === 0 ? S.accent : S.bright;
+        const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+        g.addColorStop(0, rgba(col, 0.24));
+        g.addColorStop(0.55, rgba(S.orb2, 0.12));
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(bx, by, br, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (S.background === 'nomand') {
+      // Deep-space starfield streaming softly
+      for (let s = 0; s < 75; s++) {
+        const z = ((hash(s * 31) + tSec * (0.04 + (s % 5) * 0.012)) % 1);
+        const sx = W * 0.5 + (hash(s * 13) - 0.5) * W * (0.3 + z * 1.4);
+        const sy = H * 0.5 + (hash(s * 19) - 0.5) * H * (0.3 + z * 1.4);
+        const r = 0.8 + z * (2.2 + beat * 1.2);
+        ctx.fillStyle = rgba(s % 3 === 0 ? S.bright : '#FFFFFF', clamp(z * 0.85, 0.08, 0.85));
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (S.background === 'sora') {
+      // Sky horizon twilight gradient + soft cloud bands
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, rgba(S.orb1, 0.42));
+      sky.addColorStop(0.55, rgba(S.accent, 0.22));
+      sky.addColorStop(1, rgba(S.orb2, 0.55));
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H);
+      for (let c = 0; c < 4; c++) {
+        const cx = ((hash(c * 41) * W + tSec * (16 + c * 6)) % (W + 400)) - 200;
+        const cy = H * (0.24 + c * 0.16);
+        const cg = ctx.createRadialGradient(cx, cy, 10, cx, cy, W * 0.28);
+        cg.addColorStop(0, 'rgba(255,255,255,0.12)');
+        cg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = cg;
+        ctx.fillRect(cx - W * 0.3, cy - H * 0.2, W * 0.6, H * 0.4);
+      }
+    }
+    ctx.restore();
+  }
+
   // Subtle top-left track HUD
   function drawHud() {
     if (!S.track.name) return;
@@ -1118,8 +1199,9 @@
     ctx.fillStyle = 'rgba(248,250,252,0.88)';
     ctx.fillText(S.track.name, 48, 30);
     ctx.font = '500 13px sans-serif';
-    ctx.fillStyle = 'rgba(203,213,225,0.68)';
-    ctx.fillText(`${S.track.singer || ''}  ·  FOLIA ${S.template.toUpperCase()}`, 48, 54);
+    ctx.fillStyle = 'rgba(203,213,225,0.70)';
+    const moodPart = S.moodLabel ? `  ·  ✦ ${S.moodLabel}` : '';
+    ctx.fillText(`${S.track.singer || ''}  ·  FOLIA ${S.template.toUpperCase()}${moodPart}`, 48, 54);
     ctx.restore();
   }
 
@@ -1128,7 +1210,7 @@
     const tSec = now / 1000;
     const elapsedMs = S.isPlaying ? (now - S.lastTickPerf) : 0;
     const posSec = Math.max(0, (S.posMs + clamp(elapsedMs, 0, 250)) / 1000);
-    S.smoothLevel = lerp(S.smoothLevel, S.level, 0.18);
+    S.smoothLevel = S.beatReactive ? lerp(S.smoothLevel, S.level, 0.18) : 0;
 
     const active = findActiveIndex(posSec);
     if (active !== S.activeIdx) {
@@ -1144,9 +1226,16 @@
 
     renderBg(tSec);
     ctx.clearRect(0, 0, S.w, S.h);
+    drawBackgroundLayer(tSec);
     const prog = active >= 0 ? lineProgress(active, posSec) : 0;
     const sinceChange = Math.max(0, tSec - S.lineChangedAt);
+    ctx.save();
+    if (!S.glowEnabled) {
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = 'transparent';
+    }
     drawTemplate(S.template, tSec, posSec, active, prog, sinceChange);
+    ctx.restore();
     drawHud();
 
     requestAnimationFrame(frame);
@@ -1156,6 +1245,15 @@
   window.__foliaState = function(payload) {
     if (!payload) return;
     if (payload.template) S.template = payload.template;
+    if (payload.background) S.background = payload.background;
+    if (typeof payload.beatReactive === 'boolean') S.beatReactive = payload.beatReactive;
+    if (typeof payload.glowEnabled === 'boolean') S.glowEnabled = payload.glowEnabled;
+    if (typeof payload.filmGrain === 'boolean') S.filmGrain = payload.filmGrain;
+    if (typeof payload.moodLabel === 'string') S.moodLabel = payload.moodLabel;
+    if (typeof payload.renderScale === 'number' && Math.abs(payload.renderScale - S.renderScale) > 0.01) {
+      S.renderScale = payload.renderScale;
+      resize();
+    }
     if (payload.track) {
       S.track = payload.track;
       const url = payload.track.picURL || '';

@@ -252,10 +252,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                val visibleStyles = com.walkman.tv.data.store.LyricStyle.entries.filter {
-                    it != com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW || settings.foliaWebViewEnabled
-                }
-                visibleStyles.forEach { style ->
+                listOf(
+                    com.walkman.tv.data.store.LyricStyle.CLASSIC,
+                    com.walkman.tv.data.store.LyricStyle.APPLE,
+                ).forEach { style ->
                     TvPill(
                         onClick = { scope.launch { appContainer.settingsStore.update { it.copy(lyricStyle = style) } } },
                         selected = settings.lyricStyle == style,
@@ -275,7 +275,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
                 Text(
-                    text = "⚠ 性能要求极高：开启后将使用 WebView + WebGL / Canvas 3D 实时渲染 Folia 全部 18 款动态歌词舞台模板，对电视/盒子 GPU 与内存性能要求极高。低配设备可能出现掉帧、发热或卡顿；开启后可在下方或播放页「歌词样式」中自由切换全部 18 款模板。",
+                    text = "⚠ 性能要求极高：开启后将启用 WebView + WebGL / Canvas 3D 动态歌词舞台引擎，对电视/盒子 GPU 与内存要求极高，低配设备可能掉帧或发热。开启后请前往播放页点击「歌词样式」自由选择全部 18 款模板、动态背景与 AI 主题特效。",
                     color = AppColors.Warning,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
@@ -293,39 +293,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             else -> s.lyricStyle
                         }
                         s.copy(foliaWebViewEnabled = nextEnabled, lyricStyle = nextStyle)
-                    }
-                }
-            }
-            if (settings.foliaWebViewEnabled) {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Folia 舞台模板（共 ${com.walkman.tv.data.store.FoliaTemplate.entries.size} 款，点击立即切换）：",
-                    color = AppColors.TextSecondary,
-                    fontSize = 12.sp,
-                )
-                Spacer(Modifier.height(6.dp))
-                androidx.compose.foundation.layout.FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    com.walkman.tv.data.store.FoliaTemplate.entries.forEach { tpl ->
-                        val active = settings.lyricStyle == com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW &&
-                            settings.foliaTemplate == tpl
-                        TvPill(
-                            onClick = {
-                                scope.launch {
-                                    appContainer.settingsStore.update {
-                                        it.copy(
-                                            lyricStyle = com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW,
-                                            foliaTemplate = tpl,
-                                        )
-                                    }
-                                }
-                            },
-                            selected = active,
-                        ) {
-                            Text(tpl.label, fontSize = 12.sp)
-                        }
                     }
                 }
             }

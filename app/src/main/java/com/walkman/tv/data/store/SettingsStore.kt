@@ -82,6 +82,50 @@ enum class FoliaTemplate(
     MACHI("machi", "町景 · Machi", "都市夜色霓虹灯牌构图与动态运镜"),
 }
 
+/** 6 Folia dynamic background modes (matching folia-android BUILTIN_VISUALIZER_BACKGROUND_MODES). */
+@Serializable
+enum class FoliaBackground(
+    val id: String,
+    val label: String,
+    val desc: String,
+    val previewColorA: Long,
+    val previewColorB: Long,
+) {
+    LATENT("latent", "潜影 · Latent", "WebGL 流体极光网格，随情绪与节拍流动", 0xFF1E3A8A, 0xFF38BDF8),
+    COMMON("common", "弥散 · Common", "专辑封面柔焦弥散与呼吸光晕", 0xFF312E81, 0xFFA78BFA),
+    MONET("monet", "莫奈 · Monet", "印象派柔彩笔触与光影慢漂", 0xFF0F766E, 0xFFF59E0B),
+    NOMAND("nomand", "星野 · Nomand", "深空星尘穿梭与微光星云", 0xFF0F172A, 0xFF60A5FA),
+    SORA("sora", "晴空 · Sora", "通透天际霞光梯度与柔云流动", 0xFF0284C7, 0xFFFB7185),
+    PURE("pure", "极简 · Pure", "深邃纯黑底幕，聚焦文字最省性能", 0xFF090D16, 0xFF1E293B),
+}
+
+/** AI theme mode / curated atmosphere presets for the lyric stage. */
+@Serializable
+enum class FoliaAiPalette(
+    val label: String,
+    val desc: String,
+    val accentArgb: Long,
+    val brightArgb: Long,
+    val orb1Argb: Long,
+    val orb2Argb: Long,
+) {
+    AUTO("AI 随歌智能", "自动分析封面主色与歌词情绪生成专属主题", 0xFF38BDF8, 0xFF7DD3FC, 0xFF1E3A8A, 0xFF312E81),
+    CYBER("赛博霓虹", "电光品红与青蓝碰撞，适合电子/摇滚", 0xFFF43F5E, 0xFF38BDF8, 0xFF4C0519, 0xFF0C4A6E),
+    JAZZ("午夜爵士", "暖琥珀金与深海蓝，复古温暖氛围", 0xFFF59E0B, 0xFFFDE68A, 0xFF451A03, 0xFF1E1B4B),
+    SUNSET("落日余晖", "珊瑚橘红与暮紫霞光，温柔浪漫", 0xFFFB7185, 0xFFFDBA74, 0xFF7C2D12, 0xFF581C87),
+    SAKURA("京都樱雨", "淡粉樱花与夜空靛蓝，治愈抒情", 0xFFF472B6, 0xFFFBCFE8, 0xFF500724, 0xFF1E3A8A),
+    AURORA("极光冰川", "翡翠青碧与极地天青，空灵通透", 0xFF2DD4BF, 0xFF99F6E4, 0xFF042F2E, 0xFF0C4A6E),
+    NOIR("黑金胶片", "香槟金与碳黑胶片，高级电影质感", 0xFFEAB308, 0xFFFEF08A, 0xFF1C1917, 0xFF292524),
+}
+
+/** WebView stage rendering resolution scale to tune TV smoothness vs sharpness. */
+@Serializable
+enum class FoliaRenderQuality(val label: String, val scale: Float) {
+    PERFORMANCE("性能优先", 0.55f),
+    BALANCED("均衡推荐", 0.80f),
+    ULTRA("极致清晰", 1.0f),
+}
+
 @Serializable
 data class Settings(
     val preferredQuality: Quality = Quality.MASTER,
@@ -106,6 +150,12 @@ data class Settings(
      *  Off by default; requires explicit opt-in from Settings due to high GPU/RAM requirements. */
     val foliaWebViewEnabled: Boolean = false,
     val foliaTemplate: FoliaTemplate = FoliaTemplate.FUME,
+    val foliaBackground: FoliaBackground = FoliaBackground.LATENT,
+    val foliaAiPalette: FoliaAiPalette = FoliaAiPalette.AUTO,
+    val foliaBeatReactive: Boolean = true,
+    val foliaGlowEnabled: Boolean = true,
+    val foliaFilmGrain: Boolean = true,
+    val foliaRenderQuality: FoliaRenderQuality = FoliaRenderQuality.BALANCED,
     /** Player screen: hide progress bar + transport after a few idle seconds; any D-pad / OK key
      *  brings them back. Off by default. */
     val autoHidePlayerControls: Boolean = false,
