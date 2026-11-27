@@ -58,7 +58,7 @@ enum class LyricStyle(val label: String) {
 
 @Serializable
 data class Settings(
-    val preferredQuality: Quality = Quality.FLAC24,
+    val preferredQuality: Quality = Quality.MASTER,
     val fallbackEnabled: Boolean = true,
     /** Audio offload (DSP direct path / HDMI passthrough). Bit-perfect Hi-Res on good HALs,
      *  but some vendor HALs (小米/鸿蒙/坚果 etc.) crash natively in the offload path — the
@@ -70,7 +70,7 @@ data class Settings(
     val forceSoftwareDecoding: Boolean = false,
     val showLyricTranslation: Boolean = true,
     val lyricSize: LyricSize = LyricSize.STANDARD,
-    val lyricStyle: LyricStyle = LyricStyle.CLASSIC,
+    val lyricStyle: LyricStyle = LyricStyle.APPLE,
     val vinylColor: VinylColor = VinylColor.BLACK,
     val themeColor: ThemeColor = ThemeColor.BLUE,
     /** Player screen: hide progress bar + transport after a few idle seconds; any D-pad / OK key

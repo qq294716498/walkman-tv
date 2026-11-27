@@ -352,21 +352,43 @@ private fun NeteaseSmsLoginDialog(onDismiss: () -> Unit, onConnected: () -> Unit
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = AppColors.TextPrimary,
                     unfocusedTextColor = AppColors.TextPrimary,
+                    focusedLabelColor = AppColors.BrandPrimary,
+                    unfocusedLabelColor = AppColors.TextSecondary,
                     focusedBorderColor = AppColors.BrandPrimary,
                     unfocusedBorderColor = AppColors.TextMuted,
                     cursorColor = AppColors.BrandPrimary,
                 ),
                 modifier = Modifier.fillMaxWidth().focusRequester(phoneFocus),
             )
+            TvPill(onClick = {
+                if (!busy && countdown == 0) scope.launch {
+                    busy = true
+                    message = null
+                    runCatching { account.sendCode(phone) }
+                        .onSuccess {
+                            countdown = 60
+                            message = "验证码已发送"
+                        }
+                        .onFailure { message = it.message ?: "发送失败" }
+                    busy = false
+                }
+            }) {
+                Text(
+                    if (countdown > 0) "重新发送 ${countdown}s" else "发送验证码",
+                    fontSize = 13.sp,
+                )
+            }
             OutlinedTextField(
                 value = code,
                 onValueChange = { code = it.filter(Char::isDigit).take(8) },
-                label = { Text("短信验证码") },
+                label = { Text("输入验证码") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = AppColors.TextPrimary,
                     unfocusedTextColor = AppColors.TextPrimary,
+                    focusedLabelColor = AppColors.BrandPrimary,
+                    unfocusedLabelColor = AppColors.TextSecondary,
                     focusedBorderColor = AppColors.BrandPrimary,
                     unfocusedBorderColor = AppColors.TextMuted,
                     cursorColor = AppColors.BrandPrimary,
@@ -375,32 +397,19 @@ private fun NeteaseSmsLoginDialog(onDismiss: () -> Unit, onConnected: () -> Unit
             )
             message?.let { Text(it, color = AppColors.BrandPrimary, fontSize = 12.sp) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TvPill(onClick = {
-                    if (!busy && countdown == 0) scope.launch {
-                        busy = true
-                        message = null
-                        runCatching { account.sendCode(phone) }
-                            .onSuccess {
-                                countdown = 60
-                                message = "验证码已发送"
-                            }
-                            .onFailure { message = it.message ?: "发送失败" }
-                        busy = false
-                    }
-                }) {
-                    Text(if (countdown > 0) "重新发送 ${countdown}s" else "发送验证码",
-                        fontSize = 13.sp)
-                }
-                TvPill(onClick = {
-                    if (!busy) scope.launch {
-                        busy = true
-                        message = null
-                        runCatching { account.loginWithCode(phone, code) }
-                            .onSuccess { onConnected() }
-                            .onFailure { message = it.message ?: "登录失败" }
-                        busy = false
-                    }
-                }) { Text(if (busy) "处理中…" else "登录", fontSize = 13.sp) }
+                TvPill(
+                    onClick = {
+                        if (!busy) scope.launch {
+                            busy = true
+                            message = null
+                            runCatching { account.loginWithCode(phone, code) }
+                                .onSuccess { onConnected() }
+                                .onFailure { message = it.message ?: "登录失败" }
+                            busy = false
+                        }
+                    },
+                    selected = true,
+                ) { Text(if (busy) "处理中…" else "登录", fontSize = 13.sp) }
                 TvPill(onClick = onDismiss) { Text("返回", fontSize = 13.sp) }
             }
         }

@@ -68,7 +68,7 @@ fun TracksDetailOverlay(
             nowPlayingId = nowId,
             initialFocus = true,
         ) { idx ->
-            playList(tracks, idx); onOpenPlayer()
+            playList(tracks, idx, title); onOpenPlayer()
         }
     }
 }

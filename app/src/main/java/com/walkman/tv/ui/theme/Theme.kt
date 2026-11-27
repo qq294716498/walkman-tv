@@ -44,6 +44,22 @@ object Dimens {
     val radiusXLarge = 28.dp
 }
 
+private fun material3DarkColorScheme(theme: ThemeColor): androidx.compose.material3.ColorScheme =
+    androidx.compose.material3.darkColorScheme(
+        primary = androidx.compose.ui.graphics.Color(theme.primaryArgb),
+        onPrimary = AppColors.BgDeep,
+        secondary = androidx.compose.ui.graphics.Color(theme.primaryArgb),
+        onSecondary = AppColors.BgDeep,
+        background = AppColors.BgDeep,
+        onBackground = AppColors.TextPrimary,
+        surface = AppColors.BgPanel,
+        onSurface = AppColors.TextPrimary,
+        surfaceVariant = AppColors.Card,
+        onSurfaceVariant = AppColors.TextSecondary,
+        outline = AppColors.TextMuted,
+        error = AppColors.Danger,
+    )
+
 @Composable
 fun WalkmanTvTheme(content: @Composable () -> Unit) {
     @Suppress("UNUSED_EXPRESSION") isSystemInDarkTheme() // TV is always dark here
@@ -55,12 +71,15 @@ fun WalkmanTvTheme(content: @Composable () -> Unit) {
     if (AppColors.themeColor != themeColor) {
         AppColors.themeColor = themeColor
     }
-    val colorScheme = remember(themeColor) { walkmanColorScheme(themeColor) }
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = WalkmanTypography,
-        content = content,
-    )
+    val tvScheme = remember(themeColor) { walkmanColorScheme(themeColor) }
+    val m3Scheme = remember(themeColor) { material3DarkColorScheme(themeColor) }
+    androidx.compose.material3.MaterialTheme(colorScheme = m3Scheme) {
+        MaterialTheme(
+            colorScheme = tvScheme,
+            typography = WalkmanTypography,
+            content = content,
+        )
+    }
 }
 
 private val WalkmanTypography = Typography().let { base ->

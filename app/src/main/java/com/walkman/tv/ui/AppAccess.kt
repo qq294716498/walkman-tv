@@ -72,10 +72,10 @@ suspend fun <T> fetchOr(default: T, block: suspend () -> T): T = try {
  * track, in which case we leave the player alone (so re-tapping the now-playing row in any
  * list opens the full-screen player without restarting playback from 00:00).
  */
-fun playList(tracks: List<Track>, index: Int) {
+fun playList(tracks: List<Track>, index: Int, title: String? = null) {
     if (tracks.isEmpty()) return
     val target = tracks.getOrNull(index) ?: return
     val current = appContainer.playbackController.state.value.currentTrack
     if (current?.id == target.id) return
-    appContainer.playbackController.setQueue(tracks, index, autoPlay = true)
+    appContainer.playbackController.setQueue(tracks, index, autoPlay = true, queueTitle = title)
 }

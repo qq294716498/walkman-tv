@@ -176,6 +176,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
       MvQueueDrawer(
         visible = showMvQueue,
         queue = state.queue,
+        queueTitle = state.queueTitle,
         currentIndex = state.index,
         onSelect = { idx ->
           showMvQueue = false
@@ -324,6 +325,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
     MvQueueDrawer(
       visible = showMvQueue,
       queue = state.queue,
+      queueTitle = state.queueTitle,
       currentIndex = state.index,
       onSelect = { idx -> controller.playAt(idx) },
       modifier = Modifier.align(Alignment.CenterEnd),
@@ -1326,6 +1328,7 @@ private suspend fun tryRequestFocus(target: FocusRequester) {
 private fun MvQueueDrawer(
   visible: Boolean,
   queue: List<Track>,
+  queueTitle: String?,
   currentIndex: Int,
   onSelect: (Int) -> Unit,
   modifier: Modifier = Modifier,
@@ -1350,17 +1353,21 @@ private fun MvQueueDrawer(
   ) {
     Box(modifier = Modifier.fillMaxHeight().width(360.dp).background(AppColors.BgPanel.copy(alpha = 0.95f))) {
       Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        val headerTitle = queueTitle?.takeIf { it.isNotBlank() } ?: "播放队列"
         Text(
-          "播放队列 (${queue.size})",
+          "$headerTitle (${queue.size})",
           color = AppColors.TextPrimary,
           fontSize = 16.sp,
           fontWeight = FontWeight.Bold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(10.dp))
         val rowKeys = remember(queue) { com.walkman.tv.ui.components.uniqueKeys(queue.map { it.id }) }
         LazyColumn(
           state = listState,
           verticalArrangement = Arrangement.spacedBy(6.dp),
+          contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 4.dp),
           modifier = Modifier.fillMaxSize(),
         ) {
           itemsIndexed(queue, key = { i, _ -> rowKeys[i] }) { idx, track ->
@@ -1387,7 +1394,7 @@ private fun QueueRow(
   modifier: Modifier = Modifier,
   onClick: () -> Unit,
 ) {
-  TvFocusable(onClick = onClick, modifier = modifier.fillMaxWidth()) {
+  TvFocusable(onClick = onClick, modifier = modifier.fillMaxWidth(), focusedScale = 1.015f) {
     Row(
       modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
       verticalAlignment = Alignment.CenterVertically,

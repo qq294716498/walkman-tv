@@ -260,7 +260,7 @@ private fun HistoryTab(
             onRemove = { t -> scope.launch { appContainer.libraryStore.removeFromHistory(t.id) } },
             removeLabel = "从播放历史删除",
         ) { idx ->
-            playList(history.tracks, idx); onOpenPlayer()
+            playList(history.tracks, idx, "播放历史"); onOpenPlayer()
         }
     }
     if (confirmClear) {
@@ -563,7 +563,7 @@ private fun PlaylistDetailPane(
                 },
                 removeLabel = "从歌单移除",
             ) { idx ->
-                playList(playlist.tracks, idx); onOpenPlayer()
+                playList(playlist.tracks, idx, playlist.name); onOpenPlayer()
             }
         }
     }

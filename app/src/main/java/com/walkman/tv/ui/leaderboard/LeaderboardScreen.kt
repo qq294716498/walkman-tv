@@ -100,7 +100,7 @@ fun LeaderboardScreen(onOpenPlayer: () -> Unit, modifier: Modifier = Modifier) {
                 tracks.isNotEmpty() -> {
                     val nowId = com.walkman.tv.ui.rememberCurrentTrackId()
                     TrackList(tracks, modifier = Modifier.fillMaxWidth().weight(1f), nowPlayingId = nowId) { idx ->
-                        playList(tracks, idx); onOpenPlayer()
+                        playList(tracks, idx, selected?.name); onOpenPlayer()
                     }
                 }
                 else -> EmptyHint("暂无内容", Modifier.fillMaxSize())

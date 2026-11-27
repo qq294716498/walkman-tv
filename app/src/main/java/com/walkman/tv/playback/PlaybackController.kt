@@ -37,6 +37,7 @@ enum class RepeatMode { OFF, ALL, ONE }
 
 data class PlaybackState(
     val queue: List<Track> = emptyList(),
+    val queueTitle: String? = null,
     val index: Int = -1,
     val isPlaying: Boolean = false,
     val positionMs: Long = 0,
@@ -348,10 +349,14 @@ class PlaybackController(
 
     // MARK: - queue control
 
-    fun setQueue(tracks: List<Track>, startIndex: Int = 0, autoPlay: Boolean = true) {
+    fun setQueue(tracks: List<Track>, startIndex: Int = 0, autoPlay: Boolean = true, queueTitle: String? = null) {
         if (tracks.isEmpty()) return
         consecutiveFailures = 0 // fresh user-initiated queue — start the failure streak over
-        _state.value = _state.value.copy(queue = tracks, index = startIndex.coerceIn(0, tracks.size - 1))
+        _state.value = _state.value.copy(
+            queue = tracks,
+            queueTitle = queueTitle?.trim()?.takeIf { it.isNotEmpty() },
+            index = startIndex.coerceIn(0, tracks.size - 1),
+        )
         if (autoPlay) playAt(_state.value.index)
     }
 
