@@ -1,7 +1,10 @@
 package com.walkman.tv.ui.player
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.view.View
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -17,6 +20,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 import com.walkman.tv.data.model.Track
+import com.walkman.tv.data.store.FoliaBackground
+import com.walkman.tv.data.store.FoliaRenderQuality
 import com.walkman.tv.data.store.FoliaTemplate
 import com.walkman.tv.playback.LyricLine
 import com.walkman.tv.ui.appContainer
@@ -24,14 +29,15 @@ import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val FOLIA_ORIGIN_HOST = "folia.local"
+private const val FOLIA_ENTRY_URL = "https://$FOLIA_ORIGIN_HOST/tv-stage.html"
+
 /**
- * Plan B experimental WebView GPU stage reproducing all 18 Folia lyric visualizer templates.
+ * Plan B WebView GPU stage hosting the genuine `whycfawa/folia-android` visualizer engine
+ * (PixiJS v8 + Three.js + GLSL shaders + all 18 official templates & 6 backgrounds).
  *
- * Designed specifically for Android TV safety:
- * - Non-focusable (`isFocusable = false`) so D-pad navigation & wake-keys never get trapped.
- * - Loads 100% offline from `file:///android_asset/folia/stage.html`.
- * - Bridges playback position at ~20Hz while the WebView interpolates smoothly at 60fps.
- * - Explicitly destroys the WebView in [DisposableEffect] to reclaim GPU/RAM immediately.
+ * Served offline from `assets/folia/` via a virtual HTTPS origin (`https://folia.local/`) so
+ * ES modules, dynamic chunk imports, WebGL2 shaders, and fetch() work identically to a real server.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -39,11 +45,11 @@ fun FoliaWebViewStage(
     track: Track,
     lyrics: List<LyricLine>,
     template: FoliaTemplate,
-    background: com.walkman.tv.data.store.FoliaBackground,
+    background: FoliaBackground,
     beatReactive: Boolean,
     glowEnabled: Boolean,
     filmGrain: Boolean,
-    renderQuality: com.walkman.tv.data.store.FoliaRenderQuality,
+    renderQuality: FoliaRenderQuality,
     moodLabel: String,
     showTranslation: Boolean,
     isPlaying: Boolean,
@@ -97,9 +103,15 @@ fun FoliaWebViewStage(
     LaunchedEffect(pageReady, stateJson, webViewRef) {
         val wv = webViewRef ?: return@LaunchedEffect
         if (!pageReady) return@LaunchedEffect
-        wv.evaluateJavascript("window.__foliaState($stateJson);", null)
+        wv.evaluateJavascript(
+            "if(window.__foliaState){window.__foliaState($stateJson);}else{window.__foliaPendingState=$stateJson;}",
+            null,
+        )
         val pos = controller.player.currentPosition.coerceAtLeast(0L)
-        wv.evaluateJavascript("window.__foliaTick($pos, $isPlaying, 0);", null)
+        wv.evaluateJavascript(
+            "if(window.__foliaTick){window.__foliaTick($pos, $isPlaying, 0);}",
+            null,
+        )
     }
 
     LaunchedEffect(pageReady, isPlaying, webViewRef) {
@@ -108,7 +120,10 @@ fun FoliaWebViewStage(
         while (true) {
             val pos = controller.player.currentPosition.coerceAtLeast(0L)
             val level = controller.audioLevel.value.coerceIn(0f, 1f)
-            wv.evaluateJavascript("window.__foliaTick($pos, $isPlaying, $level);", null)
+            wv.evaluateJavascript(
+                "if(window.__foliaTick){window.__foliaTick($pos, $isPlaying, $level);}",
+                null,
+            )
             delay(if (isPlaying) 50L else 250L)
         }
     }
@@ -129,7 +144,7 @@ fun FoliaWebViewStage(
         factory = { ctx ->
             WebView(ctx).apply {
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setBackgroundColor(android.graphics.Color.BLACK)
                 isFocusable = false
                 isFocusableInTouchMode = false
                 isClickable = false
@@ -145,15 +160,59 @@ fun FoliaWebViewStage(
                     mediaPlaybackRequiresUserGesture = false
                 }
                 webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                    ): WebResourceResponse? {
+                        val uri = request?.url ?: return null
+                        if (uri.host != FOLIA_ORIGIN_HOST) return null
+                        return serveFoliaAsset(ctx, uri.path ?: "/tv-stage.html")
+                    }
+
                     override fun onPageFinished(view: WebView?, url: String?) {
                         pageReady = true
                     }
                 }
                 webViewRef = this
-                loadUrl("file:///android_asset/folia/stage.html")
+                loadUrl(FOLIA_ENTRY_URL)
             }
         },
     )
+}
+
+private fun serveFoliaAsset(context: Context, rawPath: String): WebResourceResponse {
+    val clean = rawPath.trimStart('/').ifEmpty { "tv-stage.html" }
+    val assetPath = "folia/$clean"
+    val headers = mapOf(
+        "Access-Control-Allow-Origin" to "*",
+        "Cache-Control" to "public, max-age=31536000, immutable",
+    )
+    return try {
+        val stream = context.assets.open(assetPath)
+        val mime = guessMimeType(clean)
+        WebResourceResponse(mime, "UTF-8", 200, "OK", headers, stream)
+    } catch (_: Throwable) {
+        WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", headers, null)
+    }
+}
+
+private fun guessMimeType(path: String): String {
+    val lower = path.lowercase()
+    return when {
+        lower.endsWith(".html") -> "text/html"
+        lower.endsWith(".js") || lower.endsWith(".mjs") -> "application/javascript"
+        lower.endsWith(".css") -> "text/css"
+        lower.endsWith(".json") -> "application/json"
+        lower.endsWith(".svg") -> "image/svg+xml"
+        lower.endsWith(".png") -> "image/png"
+        lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
+        lower.endsWith(".webp") -> "image/webp"
+        lower.endsWith(".woff2") -> "font/woff2"
+        lower.endsWith(".woff") -> "font/woff"
+        lower.endsWith(".ttf") -> "font/ttf"
+        lower.endsWith(".wasm") -> "application/wasm"
+        else -> "application/octet-stream"
+    }
 }
 
 private fun Color.toHexRgb(): String {
@@ -165,11 +224,11 @@ private fun buildStateJson(
     track: Track,
     lyrics: List<LyricLine>,
     template: FoliaTemplate,
-    background: com.walkman.tv.data.store.FoliaBackground,
+    background: FoliaBackground,
     beatReactive: Boolean,
     glowEnabled: Boolean,
     filmGrain: Boolean,
-    renderQuality: com.walkman.tv.data.store.FoliaRenderQuality,
+    renderQuality: FoliaRenderQuality,
     moodLabel: String,
     showTranslation: Boolean,
     accent: Color,
@@ -192,6 +251,7 @@ private fun buildStateJson(
     root.put("orb2", orb2.toHexRgb())
 
     val trackObj = JSONObject()
+    trackObj.put("id", track.id)
     trackObj.put("name", track.name)
     trackObj.put("singer", track.singer)
     trackObj.put("picURL", track.picURL ?: "")
