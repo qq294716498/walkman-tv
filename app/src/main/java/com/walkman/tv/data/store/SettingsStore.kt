@@ -52,11 +52,6 @@ enum class ThemeColor(
 enum class LyricStyle(val label: String) {
     CLASSIC("经典"),
     APPLE("类苹果 (AMLL)"),
-    FOLIA("流光 (Folia)"),
-    FUME("浮名 (Folia)"),
-    TILT("倾诉 (Folia)"),
-    PARTITA("云阶 (Folia)"),
-    PENDOLO("时计 (Folia)"),
 }
 
 @Serializable
