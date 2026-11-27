@@ -312,7 +312,7 @@ private fun ResultsPane(
             }
             if (tracks.isNotEmpty()) {
                 SectionHeader("歌曲 (${tracks.size})")
-                val nowId = appContainer.playbackController.state.collectAsState().value.currentTrack?.id
+                val nowId = com.walkman.tv.ui.rememberCurrentTrackId()
                 TrackList(
                     tracks = tracks,
                     modifier = Modifier.fillMaxWidth().weight(1f),

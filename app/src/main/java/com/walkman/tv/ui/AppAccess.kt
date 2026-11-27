@@ -1,12 +1,54 @@
 package com.walkman.tv.ui
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import com.walkman.tv.App
 import com.walkman.tv.data.model.Track
 import com.walkman.tv.di.AppContainer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /** Convenience accessor for the app-wide container from composables. */
 val appContainer: AppContainer get() = App.container
+
+/**
+ * Whether the current subtree is visible on top (not obscured by a full-screen overlay like
+ * PlayerScreen). Animated canvases (Waveform, MiniWaveform) pause their frame tickers when false.
+ */
+val LocalScreenActive = staticCompositionLocalOf { true }
+
+/**
+ * Subscribe only to the current playing track's ID so list screens don't recompose at 1Hz
+ * whenever `PlaybackState.positionMs` ticks.
+ */
+@Composable
+fun rememberCurrentTrackId(): String? {
+    val flow = remember {
+        appContainer.playbackController.state
+            .map { it.currentTrack?.id }
+            .distinctUntilChanged()
+    }
+    val id by flow.collectAsState(initial = appContainer.playbackController.state.value.currentTrack?.id)
+    return id
+}
+
+/**
+ * Subscribe only to `PlaybackState.isPlaying` so callers don't recompose on every 1Hz position tick.
+ */
+@Composable
+fun rememberIsPlaying(): Boolean {
+    val flow = remember {
+        appContainer.playbackController.state
+            .map { it.isPlaying }
+            .distinctUntilChanged()
+    }
+    val playing by flow.collectAsState(initial = appContainer.playbackController.state.value.isPlaying)
+    return playing
+}
 
 /**
  * Run a suspend fetch, mapping failures to [default] — but letting CancellationException

@@ -29,8 +29,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
@@ -92,29 +94,39 @@ fun RootScreen(modifier: Modifier = Modifier) {
     }
 
     Box(modifier = modifier) {
-        Column(Modifier.fillMaxSize()) {
-            TopNav(
-                active = section,
-                onSelect = { section = it },
-                recommendFocusRequester = recommendFocus,
-                nowPlayingTitle = navBits.title,
-                nowPlayingPicURL = navBits.picURL,
-                nowPlayingIsPlaying = navBits.isPlaying,
-                onOpenPlayer = { showPlayer = true },
-            )
-            // weight(1f) — NOT fillMaxSize. fillMaxSize on a Column child requests the column's
-            // *total* height (ignoring siblings), so the bottom of this Box was being pushed
-            // past the screen by ~TopNav height and content there was clipped. weight gives
-            // exactly the remaining space after TopNav, which is what we actually want.
-            Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp)) {
-                val openPlayer = { showPlayer = true }
-                when (section) {
-                    NavSection.Recommend -> RecommendScreen(onNavigate = { section = it }, onOpenPlayer = openPlayer)
-                    NavSection.Search -> SearchScreen(onOpenPlayer = openPlayer)
-                    NavSection.Leaderboard -> LeaderboardScreen(onOpenPlayer = openPlayer)
-                    NavSection.Songlist -> SonglistScreen(onOpenPlayer = openPlayer)
-                    NavSection.Library -> LibraryScreen(onOpenPlayer = openPlayer)
-                    NavSection.Settings -> SettingsScreen()
+        androidx.compose.runtime.CompositionLocalProvider(LocalScreenActive provides !showPlayer) {
+            @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .focusGroup()
+                    .focusProperties {
+                        enter = { if (showPlayer) FocusRequester.Cancel else FocusRequester.Default }
+                    },
+            ) {
+                TopNav(
+                    active = section,
+                    onSelect = { section = it },
+                    recommendFocusRequester = recommendFocus,
+                    nowPlayingTitle = navBits.title,
+                    nowPlayingPicURL = navBits.picURL,
+                    nowPlayingIsPlaying = navBits.isPlaying && !showPlayer,
+                    onOpenPlayer = { showPlayer = true },
+                )
+                // weight(1f) — NOT fillMaxSize. fillMaxSize on a Column child requests the column's
+                // *total* height (ignoring siblings), so the bottom of this Box was being pushed
+                // past the screen by ~TopNav height and content there was clipped. weight gives
+                // exactly the remaining space after TopNav, which is what we actually want.
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp)) {
+                    val openPlayer = { showPlayer = true }
+                    when (section) {
+                        NavSection.Recommend -> RecommendScreen(onNavigate = { section = it }, onOpenPlayer = openPlayer)
+                        NavSection.Search -> SearchScreen(onOpenPlayer = openPlayer)
+                        NavSection.Leaderboard -> LeaderboardScreen(onOpenPlayer = openPlayer)
+                        NavSection.Songlist -> SonglistScreen(onOpenPlayer = openPlayer)
+                        NavSection.Library -> LibraryScreen(onOpenPlayer = openPlayer)
+                        NavSection.Settings -> SettingsScreen()
+                    }
                 }
             }
         }

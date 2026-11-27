@@ -96,7 +96,7 @@ fun TrackRow(
                         )
                     }
                 }
-                Artwork(track.picURL, modifier = Modifier.size(44.dp))
+                Artwork(track.picURL, modifier = Modifier.size(44.dp), decodeSizePx = 128)
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -180,17 +180,23 @@ private fun RowAction(
 @Composable
 internal fun MiniWaveform(modifier: Modifier = Modifier) {
     val bars = 6
-    val transition = rememberInfiniteTransition(label = "row-eq")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = LinearEasing),
-            repeatMode = AnimRepeatMode.Restart,
-        ),
-        label = "row-eq-phase",
-    )
+    val active = com.walkman.tv.ui.LocalScreenActive.current
+    val phaseState = if (active) {
+        val transition = rememberInfiniteTransition(label = "row-eq")
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = (2 * PI).toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 900, easing = LinearEasing),
+                repeatMode = AnimRepeatMode.Restart,
+            ),
+            label = "row-eq-phase",
+        )
+    } else {
+        null
+    }
     Canvas(modifier = modifier) {
+        val phase = phaseState?.value ?: 0f
         val totalW = size.width
         val barWidth = totalW / bars * 0.55f
         val gap = (totalW - barWidth * bars) / (bars - 1).coerceAtLeast(1)

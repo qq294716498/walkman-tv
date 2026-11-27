@@ -68,13 +68,23 @@ fun Artwork(
     url: String?,
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(8.dp),
+    decodeSizePx: Int = 0,
 ) {
     Box(modifier = modifier.clip(shape).background(Color(0x14FFFFFF)), contentAlignment = Alignment.Center) {
         if (url.isNullOrEmpty()) {
             Icon(Icons.Filled.MusicNote, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(28.dp))
         } else {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val request = androidx.compose.runtime.remember(url, decodeSizePx, context) {
+                coil.request.ImageRequest.Builder(context)
+                    .data(url)
+                    .allowRgb565(true)
+                    .crossfade(false)
+                    .apply { if (decodeSizePx > 0) size(decodeSizePx) }
+                    .build()
+            }
             AsyncImage(
-                model = url,
+                model = request,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,

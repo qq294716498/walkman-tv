@@ -253,10 +253,8 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
       }
 
       Spacer(Modifier.height(10.dp))
-      val audioLevel by controller.audioLevel.collectAsState()
-      com.walkman.tv.ui.components.Waveform(
+      PlayerWaveform(
         isPlaying = state.isPlaying,
-        level = audioLevel,
         modifier = Modifier.fillMaxWidth().height(40.dp),
       )
       AnimatedVisibility(visible = controlsVisible) {
@@ -1056,6 +1054,16 @@ private fun QueueRow(
   }
 }
 
+@Composable
+private fun PlayerWaveform(isPlaying: Boolean, modifier: Modifier = Modifier) {
+  val levelState = appContainer.playbackController.audioLevel.collectAsState()
+  com.walkman.tv.ui.components.Waveform(
+    isPlaying = isPlaying,
+    modifier = modifier,
+    levelProvider = { levelState.value },
+  )
+}
+
 // ============== Cover backdrop =================================================================
 
 @Composable
@@ -1063,33 +1071,36 @@ private fun CoverBackdrop(picURL: String?) {
   Box(modifier = Modifier.fillMaxSize()) {
     if (!picURL.isNullOrBlank()) {
       val context = androidx.compose.ui.platform.LocalContext.current
-      coil.compose.AsyncImage(
-        model = coil.request.ImageRequest.Builder(context)
+      val request = remember(picURL, context) {
+        coil.request.ImageRequest.Builder(context)
           .data(picURL)
-          .transformations(com.walkman.tv.ui.components.BlurTransformation(context, radius = 25f, sampling = 2f))
+          // For a heavily blurred full-screen backdrop, blurring a 160x160 decode and scaling
+          // up looks identically smooth while cutting RenderScript CPU & bitmap RAM ~40x.
+          .size(160, 160)
+          .transformations(com.walkman.tv.ui.components.BlurTransformation(context, radius = 20f, sampling = 1f))
           .crossfade(400)
-          .build(),
+          .build()
+      }
+      val scrimBrush = remember {
+        Brush.verticalGradient(
+          0f to Color.Black.copy(alpha = 0.78f),
+          0.28f to Color.Black.copy(alpha = 0.55f),
+          0.72f to Color.Black.copy(alpha = 0.55f),
+          1f to Color.Black.copy(alpha = 0.85f),
+        )
+      }
+      coil.compose.AsyncImage(
+        model = request,
         contentDescription = null,
         modifier = Modifier.fillMaxSize(),
         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
       )
-      Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
-      Box(
-        modifier = Modifier.fillMaxSize().background(
-          Brush.verticalGradient(
-            0f to AppColors.BgDeep.copy(alpha = 0.55f),
-            0.28f to Color.Transparent,
-            0.72f to Color.Transparent,
-            1f to AppColors.BgDeep.copy(alpha = 0.72f),
-          ),
-        ),
-      )
+      Box(modifier = Modifier.fillMaxSize().background(scrimBrush))
     } else {
-      Box(
-        modifier = Modifier.fillMaxSize().background(
-          Brush.verticalGradient(listOf(AppColors.BgPanel, AppColors.BgDeep)),
-        ),
-      )
+      val fallbackBrush = remember {
+        Brush.verticalGradient(listOf(AppColors.BgPanel, AppColors.BgDeep))
+      }
+      Box(modifier = Modifier.fillMaxSize().background(fallbackBrush))
     }
   }
 }

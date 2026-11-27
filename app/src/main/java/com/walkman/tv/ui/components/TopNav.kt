@@ -253,6 +253,7 @@ private fun NowPlayingChip(
                             picURL,
                             modifier = Modifier.size(14.dp),
                             shape = CircleShape,
+                            decodeSizePx = 64,
                         )
                     }
                     Box(

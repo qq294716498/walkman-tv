@@ -245,7 +245,7 @@ private fun HistoryTab(
     if (history.tracks.isEmpty()) {
         EmptyHint("列表为空", Modifier.fillMaxSize())
     } else {
-        val nowId = appContainer.playbackController.state.collectAsState().value.currentTrack?.id
+        val nowId = com.walkman.tv.ui.rememberCurrentTrackId()
         TrackList(
             history.tracks,
             modifier = Modifier
@@ -544,7 +544,7 @@ private fun PlaylistDetailPane(
         if (playlist.tracks.isEmpty()) {
             EmptyHint("歌单为空", Modifier.fillMaxSize())
         } else {
-            val nowId = appContainer.playbackController.state.collectAsState().value.currentTrack?.id
+            val nowId = com.walkman.tv.ui.rememberCurrentTrackId()
             TrackList(
                 playlist.tracks,
                 modifier = Modifier
@@ -595,7 +595,7 @@ private fun DownloadedTab(
     val failed = records.values.filter { it.status == com.walkman.tv.data.model.DownloadStatus.FAILED }
     // Hoisted out of the LazyColumn body (LazyListScope is not @Composable, so collectAsState
     // can't be called inside it).
-    val nowId = appContainer.playbackController.state.collectAsState().value.currentTrack?.id
+    val nowId = com.walkman.tv.ui.rememberCurrentTrackId()
     // COMPLETED downloads whose file is gone — stay listed here but flagged 文件缺失 + retry.
     val missing by appContainer.downloadStore.missingDownloads.collectAsState()
     var pickerTrack by remember { mutableStateOf<com.walkman.tv.data.model.Track?>(null) }

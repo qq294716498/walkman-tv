@@ -98,7 +98,7 @@ fun LeaderboardScreen(onOpenPlayer: () -> Unit, modifier: Modifier = Modifier) {
             when {
                 loadingTracks -> LoadingState(Modifier.fillMaxSize())
                 tracks.isNotEmpty() -> {
-                    val nowId = appContainer.playbackController.state.collectAsState().value.currentTrack?.id
+                    val nowId = com.walkman.tv.ui.rememberCurrentTrackId()
                     TrackList(tracks, modifier = Modifier.fillMaxWidth().weight(1f), nowPlayingId = nowId) { idx ->
                         playList(tracks, idx); onOpenPlayer()
                     }

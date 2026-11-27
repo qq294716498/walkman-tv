@@ -8,12 +8,15 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.walkman.tv.ui.LocalScreenActive
 import com.walkman.tv.ui.theme.AppColors
 import kotlin.math.PI
 import kotlin.math.cos
@@ -70,40 +73,66 @@ private val DefaultWaveLayers = listOf(
  * sum of 3 sinusoids with non-integer-ratio frequencies (the *shape*), modulated by an
  * amplitude envelope (the *pulse*) that breathes with the music.
  *
- * When [level] > 0.02 the pulse rides the **real audio RMS** captured by
- * [com.walkman.tv.playback.AudioLevelProcessor] — the waveform now visibly snaps to drum
- * hits, bass drops and vocal swells, like its iOS sibling. When [level] is 0 (paused, no
- * processor data, or the player is in audio-offload mode), the pulse falls back to a
- * synthetic 2-sine envelope so the wave still looks alive on the recommend NowPlayingPanel
- * even before a track starts.
+ * When [levelProvider] returns > 0.02 the pulse rides the **real audio RMS** captured by
+ * [com.walkman.tv.playback.AudioLevelProcessor] — the waveform visibly snaps to drum hits,
+ * bass drops and vocal swells. Reading [levelProvider] inside the Canvas draw lambda avoids
+ * recomposing parent composables on every audio level update.
  *
- * Drifts while [isPlaying] is true, freezes at t=0 when paused. Shared between the
- * full-screen player and the recommend NowPlayingPanel.
+ * Drifts while [isPlaying] and [LocalScreenActive] are true, freezes at t=0 (with no active
+ * frame ticker) when paused or obscured by a full-screen overlay.
  */
 @Composable
 fun Waveform(
     isPlaying: Boolean,
     modifier: Modifier = Modifier,
-    level: Float = 0f,
+    levelProvider: () -> Float = { 0f },
 ) {
-    val transition = rememberInfiniteTransition(label = "wave")
-    val time by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1_000_000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "wave-time",
-    )
+    val active = isPlaying && LocalScreenActive.current
+    val timeState: State<Float>? = if (active) {
+        val transition = rememberInfiniteTransition(label = "wave")
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1000f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1_000_000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "wave-time",
+        )
+    } else {
+        null
+    }
+
+    val density = LocalDensity.current
+    val paths = remember { List(DefaultWaveLayers.size) { Path() } }
+    val brushes = remember {
+        DefaultWaveLayers.map { w ->
+            Brush.horizontalGradient(
+                colorStops = arrayOf(
+                    0f to AppColors.AccentGreen.copy(alpha = 0f),
+                    0.5f to AppColors.AccentGreen.copy(alpha = w.opacity),
+                    1f to AppColors.AccentGreen.copy(alpha = 0f),
+                ),
+            )
+        }
+    }
+    val strokes = remember(density) {
+        DefaultWaveLayers.map { w -> Stroke(width = with(density) { w.widthDp.dp.toPx() }) }
+    }
+
     Canvas(modifier = modifier) {
-        val t = if (isPlaying) time.toDouble() else 0.0
+        val t = if (active && timeState != null) timeState.value.toDouble() else 0.0
         val midY = size.height / 2.0
         val width = size.width.toDouble()
+        if (width <= 0.0) return@Canvas
+        val level = if (active) levelProvider() else 0f
         // Real-audio path activates the moment the processor publishes anything above the
         // numerical-noise threshold (matches iOS AudioWave.swift line ~381).
         val useRealLevel = level > 0.02f
-        for (w in DefaultWaveLayers) {
+        val step = 6.0
+
+        for (idx in DefaultWaveLayers.indices) {
+            val w = DefaultWaveLayers[idx]
             val pulse = if (useRealLevel) {
                 // Real RMS drives every layer's amplitude. Floor at 0.15 so quiet passages
                 // don't completely flatline the line; same floor iOS uses.
@@ -118,15 +147,16 @@ fun Waveform(
             }
             // Leave a stroke-radius gap top + bottom so the painted line never bleeds past
             // the canvas. Cap the fraction at 0.97 for extra safety against rounding overshoot.
-            val strokeHalfPx = w.widthDp.dp.toPx() / 2.0
+            val strokeHalfPx = strokes[idx].width / 2.0
             val halfH = (size.height / 2.0 - strokeHalfPx).coerceAtLeast(1.0)
             val ampPx = minOf(w.amp * pulse, 0.97) * halfH
-            val wSum = (w.w1 + w.w2 + w.w3).toDouble()
+            val invWSum = 1.0 / (w.w1 + w.w2 + w.w3).toDouble()
             val ph1 = t * w.d1
             val ph2 = t * w.d2 + 1.3
             val ph3 = t * w.d3 + 2.7
 
-            val path = Path()
+            val path = paths[idx]
+            path.rewind()
             fun yAt(xx: Double): Float {
                 // Hann-like envelope centred at envBias — peaks in the middle, smoothly 0 at edges.
                 val u = (xx / width - w.envBias) / 0.5
@@ -136,25 +166,20 @@ fun Waveform(
                     w.w1 * sin(xx * w.k1 + ph1) +
                     w.w2 * sin(xx * w.k2 + ph2) +
                     w.w3 * sin(xx * w.k3 + ph3)
-                ) / wSum
+                ) * invWSum
                 return (midY + sample * ampPx * env).toFloat()
             }
             path.moveTo(0f, yAt(0.0))
-            var x = 0.0
-            while (x <= width) {
+            var x = step
+            while (x < width) {
                 path.lineTo(x.toFloat(), yAt(x))
-                x += 2.0
+                x += step
             }
+            path.lineTo(width.toFloat(), yAt(width))
             drawPath(
                 path = path,
-                brush = Brush.horizontalGradient(
-                    colorStops = arrayOf(
-                        0f to AppColors.AccentGreen.copy(alpha = 0f),
-                        0.5f to AppColors.AccentGreen.copy(alpha = w.opacity),
-                        1f to AppColors.AccentGreen.copy(alpha = 0f),
-                    ),
-                ),
-                style = Stroke(width = w.widthDp.dp.toPx()),
+                brush = brushes[idx],
+                style = strokes[idx],
             )
         }
     }

@@ -30,6 +30,7 @@ fun MediaCard(
                 picURL,
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f),
                 shape = RoundedCornerShape(8.dp),
+                decodeSizePx = 320,
             )
             Box(Modifier.padding(top = 6.dp)) {
                 Text(

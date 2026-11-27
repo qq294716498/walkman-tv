@@ -1,10 +1,12 @@
 package com.walkman.tv.playback
 
+import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
 import androidx.media3.common.audio.AudioProcessor.UnhandledAudioFormatException
 import androidx.media3.common.audio.BaseAudioProcessor
 import java.nio.ByteBuffer
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -23,9 +25,9 @@ import kotlin.math.sqrt
  * passthrough / Bluetooth A2DP offload) the processor chain is bypassed entirely and [onLevel]
  * stops firing — the consumer falls back to the synthetic waveform automatically.
  *
- * Threading: [onLevel] is invoked on Media3's audio thread (~50Hz at default buffer sizes).
- * The receiver should use a thread-safe sink like `MutableStateFlow` — Compose collects on
- * the main thread fine.
+ * Threading: [onLevel] is invoked on Media3's audio thread (throttled to ~30Hz to keep UI
+ * invalidations light on low-end TVs). The receiver should use a thread-safe sink like
+ * `MutableStateFlow` — Compose collects on the main thread fine.
  */
 class AudioLevelProcessor(
     private val onLevel: (Float) -> Unit,
@@ -34,6 +36,8 @@ class AudioLevelProcessor(
     private var bytesPerSample = 2  // default Int16
     private var floatSamples = false
     private var smoothedLevel = 0f
+    private var lastEmitMs = 0L
+    private var lastEmittedLevel = -1f
 
     override fun onConfigure(inputAudioFormat: AudioFormat): AudioFormat {
         when (inputAudioFormat.encoding) {
@@ -46,6 +50,8 @@ class AudioLevelProcessor(
             else -> throw UnhandledAudioFormatException(inputAudioFormat)
         }
         smoothedLevel = 0f
+        lastEmitMs = 0L
+        lastEmittedLevel = -1f
         return inputAudioFormat
     }
 
@@ -83,7 +89,14 @@ class AudioLevelProcessor(
             } else {
                 smoothedLevel * 0.85f + boosted * 0.15f
             }
-            onLevel(smoothedLevel)
+            val now = SystemClock.uptimeMillis()
+            if (now - lastEmitMs >= MIN_EMIT_INTERVAL_MS &&
+                abs(smoothedLevel - lastEmittedLevel) >= MIN_LEVEL_DELTA
+            ) {
+                lastEmitMs = now
+                lastEmittedLevel = smoothedLevel
+                onLevel(smoothedLevel)
+            }
         }
 
         // Pass-through: copy input bytes into output buffer of identical size.
@@ -95,11 +108,18 @@ class AudioLevelProcessor(
     override fun onQueueEndOfStream() {
         // Decay quickly to 0 so the wave settles when the track ends.
         smoothedLevel = 0f
+        lastEmittedLevel = 0f
         onLevel(0f)
     }
 
     override fun onReset() {
         smoothedLevel = 0f
+        lastEmittedLevel = 0f
         onLevel(0f)
+    }
+
+    private companion object {
+        const val MIN_EMIT_INTERVAL_MS = 33L
+        const val MIN_LEVEL_DELTA = 0.005f
     }
 }

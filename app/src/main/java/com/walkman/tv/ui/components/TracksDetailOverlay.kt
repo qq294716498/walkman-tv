@@ -61,7 +61,7 @@ fun TracksDetailOverlay(
             Text(subtitle, color = AppColors.TextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.height(6.dp))
-        val nowId = appContainer.playbackController.state.collectAsState().value.currentTrack?.id
+        val nowId = com.walkman.tv.ui.rememberCurrentTrackId()
         TrackList(
             tracks,
             modifier = Modifier.fillMaxWidth().padding(top = 0.dp),
