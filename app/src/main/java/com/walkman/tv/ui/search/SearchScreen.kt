@@ -119,11 +119,12 @@ fun SearchScreen(onOpenPlayer: () -> Unit, modifier: Modifier = Modifier) {
         Column(modifier = Modifier.width(360.dp).fillMaxHeight().padding(end = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.weight(1f)) { SearchInputBox(query) }
-                Spacer(Modifier.width(8.dp))
-                VoiceSearchButton { recognized ->
-                    query = recognized
-                    runSearch()
-                }
+                // 语音搜索暂时隐藏：国产电视大多未向第三方开放系统 SpeechRecognizer，待后续接入语音转文字 API 或端侧 ASR 后再恢复。
+                // Spacer(Modifier.width(8.dp))
+                // VoiceSearchButton { recognized ->
+                //     query = recognized
+                //     runSearch()
+                // }
                 Spacer(Modifier.width(8.dp))
                 TvPill(
                     onClick = { showQr = true },
