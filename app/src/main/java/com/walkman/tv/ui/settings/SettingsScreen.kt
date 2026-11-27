@@ -247,6 +247,19 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        Section("歌词样式") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.walkman.tv.data.store.LyricStyle.entries.forEach { style ->
+                    TvPill(
+                        onClick = { scope.launch { appContainer.settingsStore.update { it.copy(lyricStyle = style) } } },
+                        selected = settings.lyricStyle == style,
+                    ) {
+                        Text(style.label, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
         Section("主题颜色") {
             androidx.compose.foundation.layout.FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

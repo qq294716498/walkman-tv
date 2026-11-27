@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -51,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -231,6 +233,8 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
             lyrics,
             state.positionMs,
             lyricSize = lyricSize,
+            lyricStyle = settings.lyricStyle,
+            isPlaying = state.isPlaying,
             showTranslation = settings.showLyricTranslation,
             modifier = Modifier.fillMaxWidth().weight(1f),
           )
@@ -863,11 +867,24 @@ private fun LyricPane(
   lyrics: List<com.walkman.tv.playback.LyricLine>,
   positionMs: Long,
   lyricSize: com.walkman.tv.data.store.LyricSize,
+  lyricStyle: com.walkman.tv.data.store.LyricStyle,
+  isPlaying: Boolean,
   showTranslation: Boolean,
   modifier: Modifier = Modifier,
 ) {
   if (lyrics.isEmpty()) {
     Box(modifier, contentAlignment = Alignment.Center) { Text("暂无歌词", color = AppColors.TextMuted) }
+    return
+  }
+  if (lyricStyle == com.walkman.tv.data.store.LyricStyle.APPLE) {
+    AppleLyricPane(
+      lyrics = lyrics,
+      fallbackPositionMs = positionMs,
+      lyricSize = lyricSize,
+      isPlaying = isPlaying,
+      showTranslation = showTranslation,
+      modifier = modifier,
+    )
     return
   }
   val active = LyricParser.activeIndex(positionMs / 1000.0, lyrics)
@@ -908,6 +925,253 @@ private fun LyricPane(
           )
         }
       }
+    }
+  }
+}
+
+/**
+ * Apple Music-like Lyrics (AMLL) style lyric pane optimised for Android TV:
+ * - Left-aligned bold typography with generous vertical breathing room
+ * - Spring focus scale + lift anchored at the left edge
+ * - Distance-based depth opacity + top/bottom soft edge fade mask
+ * - Smooth left-to-right active-line karaoke sweep (20Hz local clock while playing)
+ * - Pulsing interlude dots during intro or instrumental gaps
+ */
+@Composable
+private fun AppleLyricPane(
+  lyrics: List<com.walkman.tv.playback.LyricLine>,
+  fallbackPositionMs: Long,
+  lyricSize: com.walkman.tv.data.store.LyricSize,
+  isPlaying: Boolean,
+  showTranslation: Boolean,
+  modifier: Modifier = Modifier,
+) {
+  val controller = appContainer.playbackController
+  var livePositionMs by remember(fallbackPositionMs) { mutableStateOf(fallbackPositionMs) }
+  LaunchedEffect(isPlaying, lyrics) {
+    if (!isPlaying) {
+      livePositionMs = controller.player.currentPosition.coerceAtLeast(0L)
+      return@LaunchedEffect
+    }
+    while (true) {
+      livePositionMs = controller.player.currentPosition.coerceAtLeast(0L)
+      delay(50)
+    }
+  }
+
+  val posSec = livePositionMs / 1000.0
+  val active = LyricParser.activeIndex(posSec, lyrics)
+  val listState = rememberLazyListState()
+  LaunchedEffect(active) {
+    if (active >= 0) {
+      runCatching { listState.animateScrollToItem(active, scrollOffset = -110) }
+    }
+  }
+
+  val edgeFadeBrush = remember {
+    Brush.verticalGradient(
+      0f to Color.Transparent,
+      0.14f to Color.Black,
+      0.84f to Color.Black,
+      1f to Color.Transparent,
+    )
+  }
+
+  LazyColumn(
+    state = listState,
+    modifier = modifier
+      .graphicsLayer(compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen)
+      .drawWithContent {
+        drawContent()
+        drawRect(brush = edgeFadeBrush, blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+      },
+    verticalArrangement = Arrangement.spacedBy(20.dp),
+    horizontalAlignment = Alignment.Start,
+    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 64.dp, bottom = 140.dp, end = 16.dp),
+  ) {
+    if (active < 0 && lyrics.firstOrNull()?.time?.let { it > 1.5 } == true) {
+      item(key = "amll-intro-dots") {
+        AppleInterludeDots(isPlaying = isPlaying, modifier = Modifier.padding(vertical = 8.dp))
+      }
+    }
+    itemsIndexed(lyrics, key = { idx, line -> "${line.id}-$idx" }) { i, line ->
+      val isActive = i == active
+      val nextTime = lyrics.getOrNull(i + 1)?.time
+      val lineDuration = if (nextTime != null && line.time >= 0.0 && nextTime > line.time) {
+        (nextTime - line.time).coerceIn(1.2, 8.0)
+      } else {
+        4.0
+      }
+      val progress = if (isActive && line.time >= 0.0) {
+        ((posSec - line.time) / lineDuration).coerceIn(0.0, 1.0).toFloat()
+      } else {
+        0f
+      }
+      AppleLyricRow(
+        line = line,
+        index = i,
+        activeIndex = active,
+        progress = progress,
+        isPlaying = isPlaying,
+        lyricSize = lyricSize,
+        showTranslation = showTranslation,
+      )
+    }
+  }
+}
+
+@Composable
+private fun AppleLyricRow(
+  line: com.walkman.tv.playback.LyricLine,
+  index: Int,
+  activeIndex: Int,
+  progress: Float,
+  isPlaying: Boolean,
+  lyricSize: com.walkman.tv.data.store.LyricSize,
+  showTranslation: Boolean,
+) {
+  val isActive = index == activeIndex
+  val targetScale = if (isActive) 1.05f else 0.96f
+  val targetAlpha = when {
+    isActive -> 1f
+    activeIndex < 0 -> (0.55f - index * 0.10f).coerceAtLeast(0.16f)
+    index < activeIndex -> (0.28f - (activeIndex - index - 1) * 0.07f).coerceAtLeast(0.13f)
+    else -> (0.58f - (index - activeIndex - 1) * 0.11f).coerceAtLeast(0.16f)
+  }
+  val scale by androidx.compose.animation.core.animateFloatAsState(
+    targetValue = targetScale,
+    animationSpec = androidx.compose.animation.core.spring(
+      dampingRatio = 0.72f,
+      stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
+    ),
+    label = "amll-scale",
+  )
+  val alpha by androidx.compose.animation.core.animateFloatAsState(
+    targetValue = targetAlpha,
+    animationSpec = tween(durationMillis = 280),
+    label = "amll-alpha",
+  )
+
+  if (line.text.isBlank()) {
+    if (isActive) {
+      AppleInterludeDots(isPlaying = isPlaying, modifier = Modifier.padding(vertical = 8.dp))
+    }
+    return
+  }
+
+  val baseSp = if (isActive) lyricSize.activeSp + 4 else lyricSize.inactiveSp + 3
+  Column(
+    horizontalAlignment = Alignment.Start,
+    modifier = Modifier
+      .fillMaxWidth()
+      .graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+        this.alpha = alpha
+      },
+  ) {
+    if (isActive) {
+      val styled = buildAppleSweepText(line.text, progress)
+      Text(
+        text = styled,
+        fontSize = baseSp.sp,
+        lineHeight = (baseSp * 1.28f).sp,
+        fontWeight = FontWeight.ExtraBold,
+        textAlign = TextAlign.Start,
+      )
+    } else {
+      Text(
+        text = line.text,
+        color = Color.White,
+        fontSize = baseSp.sp,
+        lineHeight = (baseSp * 1.28f).sp,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Start,
+      )
+    }
+    line.translation?.takeIf { showTranslation && it.isNotBlank() }?.let { trans ->
+      Spacer(Modifier.height(4.dp))
+      Text(
+        text = trans,
+        color = if (isActive) Color.White.copy(alpha = 0.78f) else Color.White.copy(alpha = 0.65f),
+        fontSize = (lyricSize.translationSp + 2).sp,
+        lineHeight = ((lyricSize.translationSp + 2) * 1.3f).sp,
+        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+        textAlign = TextAlign.Start,
+      )
+    }
+  }
+}
+
+/** Builds a smooth left-to-right karaoke sweep over [text] that wraps cleanly across lines. */
+private fun buildAppleSweepText(text: String, progress: Float): androidx.compose.ui.text.AnnotatedString {
+  val len = text.length
+  if (len == 0) return androidx.compose.ui.text.AnnotatedString("")
+  val edgeWidth = 3f
+  val cursor = progress * (len + edgeWidth)
+  val sungColor = Color.White
+  val unsungColor = Color.White.copy(alpha = 0.40f)
+  val solidEnd = (cursor - edgeWidth).toInt().coerceIn(0, len)
+  val edgeEnd = cursor.toInt().coerceIn(solidEnd, len)
+
+  return androidx.compose.ui.text.buildAnnotatedString {
+    if (solidEnd > 0) {
+      pushStyle(androidx.compose.ui.text.SpanStyle(color = sungColor))
+      append(text.substring(0, solidEnd))
+      pop()
+    }
+    for (idx in solidEnd until edgeEnd) {
+      val t = ((cursor - idx) / edgeWidth).coerceIn(0f, 1f)
+      val c = Color.White.copy(alpha = 0.40f + 0.60f * t)
+      pushStyle(androidx.compose.ui.text.SpanStyle(color = c))
+      append(text[idx])
+      pop()
+    }
+    if (edgeEnd < len) {
+      pushStyle(androidx.compose.ui.text.SpanStyle(color = unsungColor))
+      append(text.substring(edgeEnd))
+      pop()
+    }
+  }
+}
+
+@Composable
+private fun AppleInterludeDots(isPlaying: Boolean, modifier: Modifier = Modifier) {
+  val phase = if (isPlaying) {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "amll-dots")
+    transition.animateFloat(
+      initialValue = 0f,
+      targetValue = 3f,
+      animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+        animation = tween(durationMillis = 1500, easing = LinearEasing),
+        repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
+      ),
+      label = "amll-dots-phase",
+    ).value
+  } else {
+    0.5f
+  }
+  Row(
+    modifier = modifier,
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    for (i in 0 until 3) {
+      val dist = abs(phase - i).coerceAtMost(1.5f)
+      val a = (1f - dist * 0.45f).coerceIn(0.28f, 0.95f)
+      val s = (1.15f - dist * 0.2f).coerceIn(0.85f, 1.15f)
+      Box(
+        modifier = Modifier
+          .size(10.dp)
+          .graphicsLayer {
+            scaleX = s
+            scaleY = s
+            alpha = a
+          }
+          .clip(androidx.compose.foundation.shape.CircleShape)
+          .background(Color.White),
+      )
     }
   }
 }

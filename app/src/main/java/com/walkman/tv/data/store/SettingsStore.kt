@@ -47,6 +47,15 @@ enum class ThemeColor(
     CYAN("青碧", 0xFF2DD4BF, 0xFF5EEAD4, 0xFF14B8A6),
 }
 
+/** Lyric rendering style in PlayerScreen. CLASSIC is the original centered list;
+ *  APPLE is an Apple Music-like (AMLL) style with left-aligned bold typography, spring scale,
+ *  edge fade, interlude dots, and smooth left-to-right active-line sweep. */
+@Serializable
+enum class LyricStyle(val label: String) {
+    CLASSIC("经典"),
+    APPLE("类苹果 (AMLL)"),
+}
+
 @Serializable
 data class Settings(
     val preferredQuality: Quality = Quality.FLAC24,
@@ -61,6 +70,7 @@ data class Settings(
     val forceSoftwareDecoding: Boolean = false,
     val showLyricTranslation: Boolean = true,
     val lyricSize: LyricSize = LyricSize.STANDARD,
+    val lyricStyle: LyricStyle = LyricStyle.CLASSIC,
     val vinylColor: VinylColor = VinylColor.GREEN,
     val themeColor: ThemeColor = ThemeColor.GREEN,
     /** Player screen: hide progress bar + transport after a few idle seconds; any D-pad / OK key
