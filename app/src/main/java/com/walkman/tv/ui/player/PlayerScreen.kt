@@ -931,10 +931,10 @@ private fun LyricPane(
 
 /**
  * Apple Music-like Lyrics (AMLL) style lyric pane optimised for Android TV:
- * - Left-aligned bold typography with generous vertical breathing room
- * - Spring focus scale + lift anchored at the left edge
+ * - Constant fontSize + GPU-only spring scale (0.78 -> 1.0) so line switches never snap/relayout
+ * - VSync-locked local clock with derivedStateOf(active) so LazyColumn never recomposes mid-line
+ * - Pixel-smooth 60fps per-line horizontal gradient sweep in drawWithContent (works on wrapped lines)
  * - Distance-based depth opacity + top/bottom soft edge fade mask
- * - Smooth left-to-right active-line karaoke sweep (20Hz local clock while playing)
  * - Pulsing interlude dots during intro or instrumental gaps
  */
 @Composable
@@ -947,20 +947,30 @@ private fun AppleLyricPane(
   modifier: Modifier = Modifier,
 ) {
   val controller = appContainer.playbackController
-  var livePositionMs by remember(fallbackPositionMs) { mutableStateOf(fallbackPositionMs) }
+  val livePositionMs = remember { androidx.compose.runtime.mutableLongStateOf(fallbackPositionMs) }
+  // Sync on manual seek while paused (without resetting every 1s tick while playing).
+  LaunchedEffect(fallbackPositionMs, isPlaying) {
+    if (!isPlaying || abs(fallbackPositionMs - livePositionMs.longValue) > 1500L) {
+      livePositionMs.longValue = fallbackPositionMs
+    }
+  }
   LaunchedEffect(isPlaying, lyrics) {
     if (!isPlaying) {
-      livePositionMs = controller.player.currentPosition.coerceAtLeast(0L)
+      livePositionMs.longValue = controller.player.currentPosition.coerceAtLeast(0L)
       return@LaunchedEffect
     }
     while (true) {
-      livePositionMs = controller.player.currentPosition.coerceAtLeast(0L)
-      delay(50)
+      withFrameNanos {
+        livePositionMs.longValue = controller.player.currentPosition.coerceAtLeast(0L)
+      }
     }
   }
 
-  val posSec = livePositionMs / 1000.0
-  val active = LyricParser.activeIndex(posSec, lyrics)
+  val active by remember(lyrics) {
+    androidx.compose.runtime.derivedStateOf {
+      LyricParser.activeIndex(livePositionMs.longValue / 1000.0, lyrics)
+    }
+  }
   val listState = rememberLazyListState()
   LaunchedEffect(active) {
     if (active >= 0) {
@@ -985,7 +995,7 @@ private fun AppleLyricPane(
         drawContent()
         drawRect(brush = edgeFadeBrush, blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
       },
-    verticalArrangement = Arrangement.spacedBy(20.dp),
+    verticalArrangement = Arrangement.spacedBy(18.dp),
     horizontalAlignment = Alignment.Start,
     contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 64.dp, bottom = 140.dp, end = 16.dp),
   ) {
@@ -995,23 +1005,18 @@ private fun AppleLyricPane(
       }
     }
     itemsIndexed(lyrics, key = { idx, line -> "${line.id}-$idx" }) { i, line ->
-      val isActive = i == active
       val nextTime = lyrics.getOrNull(i + 1)?.time
       val lineDuration = if (nextTime != null && line.time >= 0.0 && nextTime > line.time) {
         (nextTime - line.time).coerceIn(1.2, 8.0)
       } else {
         4.0
       }
-      val progress = if (isActive && line.time >= 0.0) {
-        ((posSec - line.time) / lineDuration).coerceIn(0.0, 1.0).toFloat()
-      } else {
-        0f
-      }
       AppleLyricRow(
         line = line,
         index = i,
         activeIndex = active,
-        progress = progress,
+        lineDurationSec = lineDuration,
+        positionProvider = { livePositionMs.longValue },
         isPlaying = isPlaying,
         lyricSize = lyricSize,
         showTranslation = showTranslation,
@@ -1025,30 +1030,33 @@ private fun AppleLyricRow(
   line: com.walkman.tv.playback.LyricLine,
   index: Int,
   activeIndex: Int,
-  progress: Float,
+  lineDurationSec: Double,
+  positionProvider: () -> Long,
   isPlaying: Boolean,
   lyricSize: com.walkman.tv.data.store.LyricSize,
   showTranslation: Boolean,
 ) {
   val isActive = index == activeIndex
-  val targetScale = if (isActive) 1.05f else 0.96f
+  // Keep fontSize constant across active/inactive and drive the size transition purely via GPU
+  // scale so switching lines never causes a sudden layout pop or text re-wrap jitter.
+  val targetScale = if (isActive) 1.0f else 0.78f
   val targetAlpha = when {
     isActive -> 1f
-    activeIndex < 0 -> (0.55f - index * 0.10f).coerceAtLeast(0.16f)
+    activeIndex < 0 -> (0.52f - index * 0.10f).coerceAtLeast(0.16f)
     index < activeIndex -> (0.28f - (activeIndex - index - 1) * 0.07f).coerceAtLeast(0.13f)
-    else -> (0.58f - (index - activeIndex - 1) * 0.11f).coerceAtLeast(0.16f)
+    else -> (0.56f - (index - activeIndex - 1) * 0.11f).coerceAtLeast(0.16f)
   }
   val scale by androidx.compose.animation.core.animateFloatAsState(
     targetValue = targetScale,
     animationSpec = androidx.compose.animation.core.spring(
-      dampingRatio = 0.72f,
+      dampingRatio = 0.78f,
       stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
     ),
     label = "amll-scale",
   )
-  val alpha by androidx.compose.animation.core.animateFloatAsState(
+  val rowAlpha by androidx.compose.animation.core.animateFloatAsState(
     targetValue = targetAlpha,
-    animationSpec = tween(durationMillis = 280),
+    animationSpec = tween(durationMillis = 360),
     label = "amll-alpha",
   )
 
@@ -1059,7 +1067,9 @@ private fun AppleLyricRow(
     return
   }
 
-  val baseSp = if (isActive) lyricSize.activeSp + 4 else lyricSize.inactiveSp + 3
+  val baseSp = lyricSize.activeSp + 4
+  var textLayout by remember(line.text) { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+
   Column(
     horizontalAlignment = Alignment.Start,
     modifier = Modifier
@@ -1068,70 +1078,82 @@ private fun AppleLyricRow(
         scaleX = scale
         scaleY = scale
         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
-        this.alpha = alpha
+        alpha = rowAlpha
       },
   ) {
-    if (isActive) {
-      val styled = buildAppleSweepText(line.text, progress)
-      Text(
-        text = styled,
-        fontSize = baseSp.sp,
-        lineHeight = (baseSp * 1.28f).sp,
-        fontWeight = FontWeight.ExtraBold,
-        textAlign = TextAlign.Start,
-      )
+    val sweepModifier = if (isActive && line.time >= 0.0) {
+      Modifier
+        .graphicsLayer(compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen)
+        .drawWithContent {
+          drawContent()
+          val layout = textLayout ?: return@drawWithContent
+          val posSec = positionProvider() / 1000.0
+          val progress = ((posSec - line.time) / lineDurationSec).coerceIn(0.0, 1.0).toFloat()
+          val featherPx = 44.dp.toPx()
+          var totalWidth = 0f
+          for (l in 0 until layout.lineCount) {
+            totalWidth += (layout.getLineRight(l) - layout.getLineLeft(l)).coerceAtLeast(1f)
+          }
+          val sweptPx = progress * (totalWidth + featherPx)
+          val unsungMask = Color.White.copy(alpha = 0.36f)
+          var accWidth = 0f
+          for (l in 0 until layout.lineCount) {
+            val left = layout.getLineLeft(l)
+            val right = layout.getLineRight(l)
+            val top = layout.getLineTop(l)
+            val bottom = layout.getLineBottom(l)
+            val lineW = (right - left).coerceAtLeast(1f)
+            val lineSwept = sweptPx - accWidth
+            val rectTopLeft = androidx.compose.ui.geometry.Offset(left, top)
+            val rectSize = androidx.compose.ui.geometry.Size(lineW, (bottom - top).coerceAtLeast(1f))
+            when {
+              lineSwept <= 0f -> drawRect(
+                color = unsungMask,
+                topLeft = rectTopLeft,
+                size = rectSize,
+                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+              )
+              lineSwept - featherPx >= lineW -> {
+                // Fully sung line — keep original alpha = 1f.
+              }
+              else -> drawRect(
+                brush = Brush.horizontalGradient(
+                  colors = listOf(Color.White, unsungMask),
+                  startX = left + lineSwept - featherPx,
+                  endX = left + lineSwept,
+                ),
+                topLeft = rectTopLeft,
+                size = rectSize,
+                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+              )
+            }
+            accWidth += lineW
+          }
+        }
     } else {
-      Text(
-        text = line.text,
-        color = Color.White,
-        fontSize = baseSp.sp,
-        lineHeight = (baseSp * 1.28f).sp,
-        fontWeight = FontWeight.Bold,
-        textAlign = TextAlign.Start,
-      )
+      Modifier
     }
+
+    Text(
+      text = line.text,
+      color = Color.White,
+      fontSize = baseSp.sp,
+      lineHeight = (baseSp * 1.28f).sp,
+      fontWeight = FontWeight.Bold,
+      textAlign = TextAlign.Start,
+      onTextLayout = { textLayout = it },
+      modifier = sweepModifier,
+    )
     line.translation?.takeIf { showTranslation && it.isNotBlank() }?.let { trans ->
       Spacer(Modifier.height(4.dp))
       Text(
         text = trans,
-        color = if (isActive) Color.White.copy(alpha = 0.78f) else Color.White.copy(alpha = 0.65f),
+        color = Color.White.copy(alpha = 0.72f),
         fontSize = (lyricSize.translationSp + 2).sp,
         lineHeight = ((lyricSize.translationSp + 2) * 1.3f).sp,
-        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+        fontWeight = FontWeight.Medium,
         textAlign = TextAlign.Start,
       )
-    }
-  }
-}
-
-/** Builds a smooth left-to-right karaoke sweep over [text] that wraps cleanly across lines. */
-private fun buildAppleSweepText(text: String, progress: Float): androidx.compose.ui.text.AnnotatedString {
-  val len = text.length
-  if (len == 0) return androidx.compose.ui.text.AnnotatedString("")
-  val edgeWidth = 3f
-  val cursor = progress * (len + edgeWidth)
-  val sungColor = Color.White
-  val unsungColor = Color.White.copy(alpha = 0.40f)
-  val solidEnd = (cursor - edgeWidth).toInt().coerceIn(0, len)
-  val edgeEnd = cursor.toInt().coerceIn(solidEnd, len)
-
-  return androidx.compose.ui.text.buildAnnotatedString {
-    if (solidEnd > 0) {
-      pushStyle(androidx.compose.ui.text.SpanStyle(color = sungColor))
-      append(text.substring(0, solidEnd))
-      pop()
-    }
-    for (idx in solidEnd until edgeEnd) {
-      val t = ((cursor - idx) / edgeWidth).coerceIn(0f, 1f)
-      val c = Color.White.copy(alpha = 0.40f + 0.60f * t)
-      pushStyle(androidx.compose.ui.text.SpanStyle(color = c))
-      append(text[idx])
-      pop()
-    }
-    if (edgeEnd < len) {
-      pushStyle(androidx.compose.ui.text.SpanStyle(color = unsungColor))
-      append(text.substring(edgeEnd))
-      pop()
     }
   }
 }
