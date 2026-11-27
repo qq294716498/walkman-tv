@@ -103,6 +103,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
   val track = state.currentTrack
 
   var showEqDialog by remember { mutableStateOf(false) }
+  var showQualityDialog by remember { mutableStateOf(false) }
   var showPicker by remember { mutableStateOf(false) }
 
   // 核心自适应算法：获取屏幕物理总高度（DP），彻底摆脱内部组件相互挤压的局限
@@ -111,7 +112,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
   // 强制将黑胶总盘面尺寸锚定为全屏高度的 67%（大屏自动等比放大，且视觉效果极为饱满）
   val vinylAbsoluteSize = screenHeight * 0.67f
 
-  val wantsFocus = !state.isMv && !showMvQueue && !showEqDialog && !showPicker
+  val wantsFocus = !state.isMv && !showMvQueue && !showEqDialog && !showQualityDialog && !showPicker
   LaunchedEffect(wantsFocus) {
     if (wantsFocus) tryRequestFocus(playFocus)
   }
@@ -312,6 +313,7 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
             },
             onShowQueue = { showMvQueue = true },
             onTuneClick = { showEqDialog = true },
+            onQualityClick = { showQualityDialog = true },
             playFocusRequester = playFocus,
             progressFocusRequester = progressFocus,
           )
@@ -329,6 +331,18 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
 
     if (showEqDialog) {
       EqualizerDialog(onDismiss = { showEqDialog = false })
+    }
+    if (showQualityDialog) {
+      QualityPickerDialog(
+        currentPreferred = settings.preferredQuality,
+        currentPlaying = com.walkman.tv.playback.displayQuality(state.quality, controller.audioSpec.collectAsState().value),
+        onSelect = { q ->
+          showQualityDialog = false
+          scope.launch { appContainer.settingsStore.update { it.copy(preferredQuality = q) } }
+          controller.switchQuality(q)
+        },
+        onDismiss = { showQualityDialog = false },
+      )
     }
     if (showPicker) {
       com.walkman.tv.ui.components.PlaylistPickerDialog(
@@ -567,6 +581,82 @@ private fun EqualizerDialog(onDismiss: () -> Unit) {
   }
 }
 
+@Composable
+private fun QualityPickerDialog(
+  currentPreferred: com.walkman.tv.data.model.Quality,
+  currentPlaying: com.walkman.tv.data.model.Quality?,
+  onSelect: (com.walkman.tv.data.model.Quality) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  val qualities = com.walkman.tv.data.model.Quality.orderedHighToLow
+  val activeFocus = remember { FocusRequester() }
+  val activeTarget = currentPlaying ?: currentPreferred
+  LaunchedEffect(Unit) {
+    delay(60)
+    runCatching { activeFocus.requestFocus() }
+  }
+
+  androidx.compose.ui.window.Dialog(
+    onDismissRequest = onDismiss,
+    properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+  ) {
+    Column(
+      modifier = Modifier
+        .width(380.dp)
+        .clip(RoundedCornerShape(16.dp))
+        .background(AppColors.BgPanel)
+        .padding(horizontal = 22.dp, vertical = 20.dp),
+    ) {
+      Text("切换音质", color = AppColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+      Spacer(Modifier.height(4.dp))
+      Text(
+        "选择目标音质后将从当前进度重新加载（受音源支持情况限制）",
+        color = AppColors.TextSecondary,
+        fontSize = 12.sp,
+      )
+      Spacer(Modifier.height(14.dp))
+      Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        qualities.forEach { q ->
+          val isPlaying = q == currentPlaying
+          val isPreferred = q == currentPreferred
+          val rowMod = Modifier
+            .fillMaxWidth()
+            .let { if (q == activeTarget) it.focusRequester(activeFocus) else it }
+          TvFocusable(
+            onClick = { onSelect(q) },
+            modifier = rowMod,
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Text(
+                q.badgeLabel,
+                color = if (isPlaying) AppColors.AccentGreen else AppColors.TextSecondary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.width(52.dp),
+              )
+              Text(
+                q.displayName,
+                color = if (isPlaying) AppColors.AccentGreen else AppColors.TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+              )
+              if (isPlaying) {
+                Text("当前 ✓", color = AppColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+              } else if (isPreferred) {
+                Text("偏好", color = AppColors.TextMuted, fontSize = 11.sp)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun TransportBar(
@@ -581,6 +671,7 @@ private fun TransportBar(
   onMv: () -> Unit,
   onShowQueue: () -> Unit,
   onTuneClick: () -> Unit,
+  onQualityClick: () -> Unit,
   playFocusRequester: FocusRequester? = null,
   progressFocusRequester: FocusRequester? = null,
 ) {
@@ -624,7 +715,7 @@ private fun TransportBar(
       val displayed = com.walkman.tv.playback.displayQuality(state.quality, audioSpec)
       displayed?.let { q ->
         TvPill(
-          onClick = { },
+          onClick = onQualityClick,
           selected = true,
           focusRequester = qualityFocus,
           modifier = Modifier.focusProperties {

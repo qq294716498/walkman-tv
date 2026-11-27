@@ -380,7 +380,15 @@ class PlaybackController(
 
     fun playTrack(track: Track) = setQueue(listOf(track), 0, true)
 
-    fun playAt(index: Int, qualityCap: Quality? = null) {
+    fun switchQuality(quality: Quality) {
+        preferredQuality = quality
+        val idx = _state.value.index
+        if (idx < 0 || _state.value.queue.getOrNull(idx) == null) return
+        val resumePos = player.currentPosition.coerceAtLeast(0L)
+        playAt(idx, qualityCap = quality, resumePositionMs = resumePos)
+    }
+
+    fun playAt(index: Int, qualityCap: Quality? = null, resumePositionMs: Long = 0L) {
         val track = _state.value.queue.getOrNull(index) ?: return
         // Fresh attempt (no cap) clears the last-attempted memory + the network retry counter;
         // cascade retries (cap != null) keep them so [onPlayerError] can keep stepping down or
@@ -417,7 +425,7 @@ class PlaybackController(
             } else {
                 runCatching { sources.resolveMusicURL(track, effectivePreferred) }
             }
-            runCatching { playResolvedOrFail(track, resolved) }
+            runCatching { playResolvedOrFail(track, resolved, resumePositionMs) }
                 .onFailure { e ->
                     android.util.Log.e("PlaybackController", "playAt crashed", e)
                     failAndAdvance(e.message ?: e::class.simpleName ?: "播放出错")
@@ -425,7 +433,7 @@ class PlaybackController(
         }
     }
 
-    private fun playResolvedOrFail(track: Track, resolved: Result<ResolvedTrack>) {
+    private fun playResolvedOrFail(track: Track, resolved: Result<ResolvedTrack>, resumePositionMs: Long = 0L) {
         resolved.onSuccess { r ->
                 val item = MediaItem.Builder()
                     .setUri(r.url)
@@ -445,6 +453,9 @@ class PlaybackController(
                 // next track gets a fresh budget.
                 networkRetryCount = 0
                 player.setMediaItem(item)
+                if (resumePositionMs > 0L) {
+                    player.seekTo(resumePositionMs)
+                }
                 player.prepare()
                 // Fire the file-header probe so the badge can later clamp the claimed tier
                 // down if the bytes turn out to be lower-grade than the script reported.
