@@ -98,6 +98,16 @@ class LocalServer private constructor(
                 if (url.isNotEmpty()) events.postQrSonglistUrl(url)
                 html(donePage("已发送歌单链接"))
             }
+            "/api/lx-playlist-file" -> {
+                val tmpPath = files["file"]
+                val bytes = tmpPath?.let { runCatching { File(it).readBytes() }.getOrNull() }
+                if (bytes != null && bytes.isNotEmpty()) {
+                    events.postQrLxPlaylistBytes(bytes)
+                    html(donePage("已上传落雪歌单文件（${bytes.size / 1024} KB），电视正在导入…"))
+                } else {
+                    html(donePage("未收到文件，请重新选择 .lxmc 或 .json 文件"))
+                }
+            }
             else -> notFound()
         }
     }
@@ -246,13 +256,19 @@ class LocalServer private constructor(
         private val SONGLIST_URL_HTML = """
             <!doctype html><html><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>推送歌单 · 好听-TV</title>$PAGE_CSS</head>
+            <title>导入歌单 · 好听-TV</title>$PAGE_CSS</head>
             <body>
-              <h2>推送歌单链接</h2>
-              <p>从酷我 / 酷狗 / QQ 音乐 / 网易云分享一个歌单链接（或纯数字 ID），粘进来发送给电视，电视会自动识别并导入。</p>
+              <h2>导入在线歌单链接</h2>
+              <p>从酷我 / 酷狗 / QQ 音乐 / 网易云分享一个歌单链接（或纯数字 ID），粘进来发送给电视。</p>
               <form class="card" method="POST" action="/api/songlist-url">
                 <textarea name="url" placeholder="例如 https://music.163.com/playlist?id=2034742057" rows="3" autofocus></textarea>
-                <button>发送到电视</button>
+                <button>发送链接到电视</button>
+              </form>
+              <h2 style="margin-top:24px;">导入落雪音乐 (LX) 歌单</h2>
+              <p>支持落雪音乐电脑版 / 手机版导出的 <b>.lxmc</b> 或 <b>.json</b> 歌单备份文件（含单个歌单、全部歌单及完整备份）。</p>
+              <form class="card" method="POST" action="/api/lx-playlist-file" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".lxmc,.json,application/json,application/octet-stream" required>
+                <button>上传 LX 歌单并导入</button>
               </form>
             </body></html>
         """.trimIndent()
