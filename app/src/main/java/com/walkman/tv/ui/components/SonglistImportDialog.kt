@@ -60,11 +60,13 @@ import kotlinx.coroutines.launch
 @Composable
 fun SonglistImportDialog(onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val libraryStore = appContainer.libraryStore
     var raw by remember { mutableStateOf("") }
     var customName by remember { mutableStateOf("") }
     var manualSource by remember { mutableStateOf<SourceID?>(null) }
     var importing by remember { mutableStateOf(false) }
-    var doneCount by remember { mutableStateOf<Int?>(null) }
+    var doneMessage by remember { mutableStateOf<String?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var showQr by remember { mutableStateOf(false) }
     var showNameDialog by remember { mutableStateOf(false) }
@@ -73,16 +75,59 @@ fun SonglistImportDialog(onDismiss: () -> Unit) {
     val pureId = remember(raw, parsedRef) {
         if (parsedRef == null) SonglistImporter.pureIdOrNull(raw) else null
     }
-    // Direct expression — recomputed on every recomposition; cheap and avoids snapshot tracking
-    // pitfalls (the inputs are plain values, not State, so derivedStateOf wouldn't help).
-    val canImport = !importing && doneCount == null && (
+    val canImport = !importing && doneMessage == null && (
         parsedRef != null || (pureId != null && manualSource != null)
         )
+
+    fun runLxBytesImport(bytes: ByteArray) {
+        if (importing) return
+        importing = true
+        errorText = null
+        showQr = false
+        scope.launch {
+            com.walkman.tv.playback.imports.LxPlaylistImporter
+                .importBytes(bytes, libraryStore)
+                .onSuccess { summary ->
+                    val lovePart = if (summary.loveCount > 0) "（含我喜欢的 ${summary.loveCount} 首）" else ""
+                    doneMessage = "✓ 已导入 ${summary.playlistCount} 个 LX 歌单，共 ${summary.trackCount} 首$lovePart"
+                    importing = false
+                    delay(1200)
+                    onDismiss()
+                }
+                .onFailure { e ->
+                    errorText = "LX 歌单导入失败：${e.localizedMessage ?: e}"
+                    importing = false
+                }
+        }
+    }
+
+    val lxFileLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes != null && bytes.isNotEmpty()) {
+                runLxBytesImport(bytes)
+            } else {
+                errorText = "无法读取所选文件"
+            }
+        }
+    }
+
     // QR-pushed URL replaces whatever's in the field.
     LaunchedEffect(Unit) {
         appContainer.events.qrSonglistUrl.collect { received ->
             raw = received.trim()
             showQr = false
+        }
+    }
+    // QR-pushed LX playlist file (.lxmc / .json) imports immediately.
+    LaunchedEffect(Unit) {
+        appContainer.events.qrLxPlaylistBytes.collect { bytes ->
+            runLxBytesImport(bytes)
         }
     }
 
@@ -95,7 +140,7 @@ fun SonglistImportDialog(onDismiss: () -> Unit) {
         val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
         Column(
             modifier = Modifier
-                .width(540.dp)
+                .width(560.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(AppColors.BgPanel)
                 .padding(horizontal = 22.dp, vertical = 20.dp),
@@ -103,7 +148,7 @@ fun SonglistImportDialog(onDismiss: () -> Unit) {
             Text("导入歌单", color = AppColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.size(4.dp))
             Text(
-                "粘贴酷我 / 酷狗 / QQ 音乐 / 网易云分享的歌单链接，导入后会在「我的列表」里多一个歌单。",
+                "支持酷我 / 酷狗 / QQ 音乐 / 网易云歌单链接，或落雪音乐 (LX) 导出的 .lxmc / .json 歌单文件。",
                 color = AppColors.TextSecondary,
                 fontSize = 12.sp,
             )
@@ -206,10 +251,10 @@ fun SonglistImportDialog(onDismiss: () -> Unit) {
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            doneCount?.let {
+            doneMessage?.let {
                 Spacer(Modifier.size(12.dp))
                 Text(
-                    "✓ 导入完成，共 $it 首",
+                    it,
                     color = AppColors.AccentGreen,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -228,18 +273,27 @@ fun SonglistImportDialog(onDismiss: () -> Unit) {
             ) {
                 TvPill(
                     onClick = { showQr = true },
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
-                    Text("手机扫码输入", fontSize = 13.sp)
+                    Text("手机扫码/传LX", fontSize = 12.sp)
+                }
+                TvPill(
+                    onClick = {
+                        runCatching { lxFileLauncher.launch(arrayOf("*/*")) }
+                            .onFailure { errorText = "电视缺少文件选择器，请使用「手机扫码/传LX」上传" }
+                    },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text("本地 LX 文件", fontSize = 12.sp)
                 }
                 Spacer(Modifier.weight(1f))
                 TvPill(
                     onClick = { if (!importing) onDismiss() },
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    Text(if (doneCount != null) "完成" else "取消", fontSize = 13.sp)
+                    Text(if (doneMessage != null) "完成" else "取消", fontSize = 13.sp)
                 }
-                if (doneCount == null) {
+                if (doneMessage == null) {
                     val startImport: () -> Unit = startImport@{
                         if (!canImport) return@startImport
                         val ref = parsedRef ?: pureId?.let { id ->
@@ -256,7 +310,7 @@ fun SonglistImportDialog(onDismiss: () -> Unit) {
                                     library = appContainer.libraryStore,
                                 )
                             }.onSuccess { result ->
-                                doneCount = result.count
+                                doneMessage = "✓ 导入完成，共 ${result.count} 首"
                                 importing = false
                                 // 900ms grace so user sees the confirmation before dismiss.
                                 delay(900)
@@ -270,7 +324,7 @@ fun SonglistImportDialog(onDismiss: () -> Unit) {
                     TvPill(
                         onClick = startImport,
                         selected = canImport,
-                        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
                     ) {
                         Text(
                             if (importing) "导入中…" else "确定导入",
@@ -289,8 +343,8 @@ fun SonglistImportDialog(onDismiss: () -> Unit) {
         if (ip != null && port != null) {
             QrDialog(
                 url = "http://$ip:$port/songlist-url",
-                title = "扫码推送歌单链接",
-                subtitle = "在手机上粘贴歌单链接，发送后自动填入电视端输入框",
+                title = "扫码导入歌单 / LX 文件",
+                subtitle = "手机扫码可粘贴在线歌单链接，或直接上传落雪音乐 .lxmc / .json 歌单文件",
                 onDismiss = { showQr = false },
             )
         } else {

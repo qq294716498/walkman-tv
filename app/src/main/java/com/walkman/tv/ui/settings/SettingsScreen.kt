@@ -252,12 +252,47 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                com.walkman.tv.data.store.LyricStyle.entries.forEach { style ->
+                listOf(
+                    com.walkman.tv.data.store.LyricStyle.CLASSIC,
+                    com.walkman.tv.data.store.LyricStyle.APPLE,
+                ).forEach { style ->
                     TvPill(
                         onClick = { scope.launch { appContainer.settingsStore.update { it.copy(lyricStyle = style) } } },
                         selected = settings.lyricStyle == style,
                     ) {
                         Text(style.label, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        Section("Folia 渲染引擎（实验性 · 方案 B）") {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(AppColors.Warning.copy(alpha = 0.14f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    text = "⚠ 性能要求极高：开启后将启用 WebView + WebGL / Canvas 3D 动态歌词舞台引擎，对电视/盒子 GPU 与内存要求极高，低配设备可能掉帧或发热。开启后请前往播放页点击「歌词样式」自由选择全部 18 款模板、动态背景与 AI 主题特效。",
+                    color = AppColors.Warning,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            ToggleRow("开启 Folia WebView 舞台引擎（需高性能设备）", settings.foliaWebViewEnabled) {
+                scope.launch {
+                    appContainer.settingsStore.update { s ->
+                        val nextEnabled = !s.foliaWebViewEnabled
+                        val nextStyle = when {
+                            !nextEnabled && s.lyricStyle == com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW ->
+                                com.walkman.tv.data.store.LyricStyle.APPLE
+                            nextEnabled -> com.walkman.tv.data.store.LyricStyle.FOLIA_WEBVIEW
+                            else -> s.lyricStyle
+                        }
+                        s.copy(foliaWebViewEnabled = nextEnabled, lyricStyle = nextStyle)
                     }
                 }
             }

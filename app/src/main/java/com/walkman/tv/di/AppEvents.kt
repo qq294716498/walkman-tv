@@ -53,6 +53,12 @@ class AppEvents {
     )
     val qrSonglistUrl: SharedFlow<String> = _qrSonglistUrl.asSharedFlow()
 
+    private val _qrLxPlaylistBytes = MutableSharedFlow<ByteArray>(
+        extraBufferCapacity = 2,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val qrLxPlaylistBytes: SharedFlow<ByteArray> = _qrLxPlaylistBytes.asSharedFlow()
+
     /** Emitted when the full-screen player overlay closes — TrackLists collect this to restore
      *  focus on the row that was last clicked. */
     private val _playerClosed = MutableSharedFlow<Unit>(
@@ -67,5 +73,6 @@ class AppEvents {
     fun postQrScriptText(text: String) { _qrScriptText.tryEmit(text) }
     fun postQrPlaylistName(name: String) { _qrPlaylistName.tryEmit(name) }
     fun postQrSonglistUrl(url: String) { _qrSonglistUrl.tryEmit(url) }
+    fun postQrLxPlaylistBytes(bytes: ByteArray) { _qrLxPlaylistBytes.tryEmit(bytes) }
     fun postPlayerClosed() { _playerClosed.tryEmit(Unit) }
 }

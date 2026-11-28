@@ -79,6 +79,20 @@ object SongThemeEngine {
         theme
     }
 
+    /** Generates a fresh harmonious dark-mode AI palette variation on demand ("AI 灵感重绘"). */
+    fun remix(seed: Int): SongTheme {
+        val mood = moods[abs(seed) % moods.size]
+        val primaryHue = ((seed * 137.508f) % 360f + 360f) % 360f
+        val secondaryHue = (primaryHue + 42f + (seed % 3) * 18f) % 360f
+        return SongTheme(
+            accent = hslColor(primaryHue, saturation = 0.80f, lightness = 0.64f),
+            bright = hslColor(primaryHue, saturation = 0.86f, lightness = 0.78f),
+            orbPrimary = hslColor(primaryHue, saturation = 0.72f, lightness = 0.42f),
+            orbSecondary = hslColor(secondaryHue, saturation = 0.68f, lightness = 0.34f),
+            moodLabel = "${mood.label} · 灵感 #${abs(seed % 99) + 1}",
+        )
+    }
+
     private fun detectMood(track: Track, lyrics: List<LyricLine>): MoodProfile {
         val corpus = buildString {
             append(track.name.lowercase())

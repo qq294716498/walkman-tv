@@ -60,6 +60,18 @@ class LibraryStore(context: Context) {
         persist()
     }
 
+    /** Batch add to favorites — single StateFlow update + single disk write (used by LX import). */
+    suspend fun addAllToFavorites(tracks: List<Track>) {
+        val seen = _love.value.tracks.mapTo(HashSet()) { it.id }
+        val fresh = tracks.filter { seen.add(it.id) }
+        if (fresh.isEmpty()) return
+        _love.value = _love.value.copy(
+            tracks = _love.value.tracks + fresh,
+            updatedAt = System.currentTimeMillis(),
+        )
+        persist()
+    }
+
     suspend fun recordHistory(track: Track) {
         val deduped = listOf(track) + _history.value.tracks.filter { it.id != track.id }
         _history.value = _history.value.copy(tracks = deduped.take(200), updatedAt = System.currentTimeMillis())
