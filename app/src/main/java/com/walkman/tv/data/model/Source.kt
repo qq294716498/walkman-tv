@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 /** Music platforms, mirroring iOS `SourceID`. Raw value is the lx-music source key. */
 @Serializable
 enum class SourceID(val key: String, val displayName: String) {
+    @SerialName("qs") QS("qs", "汽水"),
     @SerialName("kw") KW("kw", "酷我"),
     @SerialName("kg") KG("kg", "酷狗"),
     @SerialName("tx") TX("tx", "QQ音乐"),
@@ -14,12 +15,18 @@ enum class SourceID(val key: String, val displayName: String) {
     @SerialName("local") LOCAL("local", "本地");
 
     companion object {
-        fun fromKey(key: String?): SourceID? = entries.firstOrNull { it.key == key }
+        fun fromKey(key: String?): SourceID? {
+            val k = key?.trim()?.lowercase() ?: return null
+            return when (k) {
+                "qs", "qishui", "dy", "luna" -> QS
+                else -> entries.firstOrNull { it.key == k }
+            }
+        }
         /** Sources usable as online music platforms (exclude local). */
-        val onlineSources: List<SourceID> = listOf(KW, KG, TX, WY, MG)
+        val onlineSources: List<SourceID> = listOf(QS, KW, KG, TX, WY, MG)
 
         /** Fixed order for the discover (home) page — spec docs/discover-page-spec-android-tv.md §2. */
-        val homePageOrder: List<SourceID> = listOf(KW, WY, KG, TX)
+        val homePageOrder: List<SourceID> = listOf(QS, KW, WY, KG, TX)
     }
 }
 

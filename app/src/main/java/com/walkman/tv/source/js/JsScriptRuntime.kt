@@ -47,7 +47,11 @@ class JsScriptRuntime(
         private set
 
     private val pending = ConcurrentHashMap<String, CompletableDeferred<Any?>>()
+    private val rawSourceKeys = ConcurrentHashMap<SourceID, String>()
     private var initDeferred: CompletableDeferred<ScriptCapabilities>? = null
+
+    /** The exact source key string this script declared for [source] (e.g. "qs" / "qishui" / "dy"). */
+    fun rawSourceKey(source: SourceID): String = rawSourceKeys[source] ?: source.key
 
     open class ScriptException(message: String) : Exception(message)
     /** The script never answered (vs. answered with an error) — retrying it at another quality
@@ -96,7 +100,7 @@ class JsScriptRuntime(
         val deferred = CompletableDeferred<Any?>()
         pending[requestKey] = deferred
         val data = JSONObject()
-            .put("source", source.key)
+            .put("source", rawSourceKey(source))
             .put("action", action)
             .put("info", info)
         val payload = JSONObject().put("requestKey", requestKey).put("data", data)
@@ -209,6 +213,7 @@ class JsScriptRuntime(
             srcObj.keys().forEach { k ->
                 val src = SourceID.fromKey(k) ?: return@forEach
                 val v = srcObj.optJSONObject(k) ?: return@forEach
+                rawSourceKeys[src] = k
                 val actions = v.optJSONArray("actions")?.let { arr ->
                     List(arr.length()) { arr.optString(it) }
                 } ?: emptyList()

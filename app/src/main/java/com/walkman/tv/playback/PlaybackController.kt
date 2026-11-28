@@ -259,8 +259,8 @@ class PlaybackController(
 
     /** Set by the app to record played tracks into history. */
     var onTrackStarted: ((Track) -> Unit)? = null
-    /** Preferred play quality, fed from settings. */
-    var preferredQuality: Quality = Quality.K320
+    /** Preferred play quality, fed from settings. Every fresh track switch starts from this tier. */
+    var preferredQuality: Quality = Quality.MASTER
 
     private var resolveJob: Job? = null
 
@@ -285,29 +285,34 @@ class PlaybackController(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                // Format/codec rejections are the "encrypted .mgg" / "actually MP3 not FLAC" case
-                // from spec §3 — re-cascade from one tier below the current attempt. Network /
-                // unauthorized errors get surfaced as-is.
-                val isFormatReject = error.errorCode in FORMAT_REJECT_CODES
+                // Format/codec rejections or broken high-tier stream responses (403/404/HTML error page)
+                // step down one quality tier without mutating preferredQuality — so the next track still
+                // starts from preferredQuality.
+                val isImmediateDowngrade = error.errorCode in FORMAT_REJECT_CODES ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE
                 val current = lastAttemptedQuality
                 val track = _state.value.currentTrack
-                if (isFormatReject && track != null && current != null && current != Quality.K128) {
+                fun nextLowerQuality(q: Quality): Quality {
                     val full = Quality.orderedHighToLow
-                    val idx = full.indexOf(current)
-                    val below = if (idx >= 0 && idx + 1 < full.size) full[idx + 1] else Quality.K128
+                    val idx = full.indexOf(q)
+                    return if (idx >= 0 && idx + 1 < full.size) full[idx + 1] else Quality.K128
+                }
+                if (isImmediateDowngrade && track != null && current != null && current != Quality.K128) {
+                    val below = nextLowerQuality(current)
                     android.util.Log.w(
                         "PlaybackController",
-                        "format reject @ ${current.key} (${error.errorCodeName}); re-cascading from ${below.key}",
+                        "stream reject @ ${current.key} (${error.errorCodeName}); re-cascading from ${below.key}",
                     )
                     _state.value = _state.value.copy(
-                        warning = "${current.displayName} 格式不支持，降级到 ${below.displayName}",
+                        warning = "${current.displayName} 播放失败，已降档至 ${below.displayName}",
                     )
-                    networkRetryCount = 0 // format error path — separate from the network counter
+                    networkRetryCount = 0
                     playAt(_state.value.index, qualityCap = below)
                     return
                 }
                 // Transient network — exponential backoff retry up to MAX_NETWORK_RETRIES.
-                // After that, advance to next so playback doesn't dead-stop the queue.
+                // If retries exhaust above 128k, step down one quality tier before skipping the track.
                 if (error.errorCode in NETWORK_RETRY_CODES && track != null) {
                     if (networkRetryCount < MAX_NETWORK_RETRIES) {
                         networkRetryCount++
@@ -331,8 +336,20 @@ class PlaybackController(
                         }
                         return
                     }
-                    // Retries exhausted — this track has failed; auto-skip (counts toward the
-                    // consecutive-failure limit).
+                    if (current != null && current != Quality.K128) {
+                        val below = nextLowerQuality(current)
+                        android.util.Log.w(
+                            "PlaybackController",
+                            "network retries exhausted @ ${current.key}; stepping down to ${below.key}",
+                        )
+                        networkRetryCount = 0
+                        _state.value = _state.value.copy(
+                            warning = "${current.displayName} 加载失败，已降档至 ${below.displayName}",
+                        )
+                        playAt(_state.value.index, qualityCap = below)
+                        return
+                    }
+                    // Retries exhausted at lowest tier — this track has failed; auto-skip.
                     android.util.Log.w(
                         "PlaybackController",
                         "network retries exhausted on ${track.name}; skipping to next",
@@ -340,7 +357,16 @@ class PlaybackController(
                     failAndAdvance("网络不稳定")
                     return
                 }
-                // Any other error — this track failed; auto-skip (or stop after too many in a row).
+                // Any other error — if still above 128k, try stepping down once before skipping.
+                if (track != null && current != null && current != Quality.K128) {
+                    val below = nextLowerQuality(current)
+                    networkRetryCount = 0
+                    _state.value = _state.value.copy(
+                        warning = "${current.displayName} 播放异常，已降档至 ${below.displayName}",
+                    )
+                    playAt(_state.value.index, qualityCap = below)
+                    return
+                }
                 failAndAdvance(error.errorCodeName)
             }
         })

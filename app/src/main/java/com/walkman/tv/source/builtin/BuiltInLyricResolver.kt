@@ -12,11 +12,15 @@ import org.json.JSONObject
  * Direct lyric fetchers per platform, ported from iOS `BuiltInLyricResolver`.
  * Uses the simplest endpoints (no krc decryption).
  */
-class BuiltInLyricResolver(private val http: CatalogHttp) {
+class BuiltInLyricResolver(
+    private val http: CatalogHttp,
+    private val qishui: com.walkman.tv.cloud.QishuiAccount? = null,
+) {
 
     private val ua = mapOf("User-Agent" to "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)")
 
     suspend fun fetch(track: Track): List<LyricLine>? = when (track.source) {
+        SourceID.QS -> qishui?.fetchLyrics(track.songmid)
         SourceID.KW -> kuwo(track.songmid)
         SourceID.TX -> qq(track.songmid)
         SourceID.WY -> netease(track.songmid)

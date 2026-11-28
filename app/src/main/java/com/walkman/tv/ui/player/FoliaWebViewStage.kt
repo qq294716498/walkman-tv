@@ -47,6 +47,7 @@ import org.json.JSONObject
 private const val TAG = "FoliaWebViewStage"
 private const val FOLIA_ORIGIN_HOST = "appassets.androidplatform.net"
 private const val FOLIA_ASSET_PREFIX = "/assets/folia/"
+private const val FOLIA_COVER_PROXY_PATH = "/__cover__"
 private const val FOLIA_ENTRY_URL = "https://$FOLIA_ORIGIN_HOST${FOLIA_ASSET_PREFIX}tv-stage.html"
 
 /**
@@ -55,6 +56,8 @@ private const val FOLIA_ENTRY_URL = "https://$FOLIA_ORIGIN_HOST${FOLIA_ASSET_PRE
  *
  * Served offline from `assets/folia/` via Android's reserved `appassets.androidplatform.net`
  * virtual HTTPS origin so ES modules, dynamic chunks, WebGL2 shaders, and fetch() work offline.
+ * External album cover URLs are proxied through `/__cover__` with `Access-Control-Allow-Origin: *`
+ * so WebGL texture uploads never fail CORS on CDNs like QQ Music (`y.gtimg.cn`).
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -79,9 +82,11 @@ fun FoliaWebViewStage(
     brightColor: Color,
     orbPrimary: Color,
     orbSecondary: Color,
+    showDebugInfo: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val controller = appContainer.playbackController
+    val httpClient = appContainer.httpClient
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var pageReady by remember { mutableStateOf(false) }
     var jsReady by remember { mutableStateOf(false) }
@@ -239,7 +244,11 @@ fun FoliaWebViewStage(
                         ): WebResourceResponse? {
                             val uri = request?.url ?: return null
                             if (uri.host != FOLIA_ORIGIN_HOST) return null
-                            return serveFoliaAsset(ctx, uri.path ?: "${FOLIA_ASSET_PREFIX}tv-stage.html")
+                            val path = uri.path ?: "${FOLIA_ASSET_PREFIX}tv-stage.html"
+                            if (path == FOLIA_COVER_PROXY_PATH) {
+                                return serveProxiedCover(httpClient, uri.getQueryParameter("url"))
+                            }
+                            return serveFoliaAsset(ctx, path)
                         }
 
                         override fun onPageFinished(view: WebView?, url: String?) {
@@ -264,16 +273,82 @@ fun FoliaWebViewStage(
             },
         )
 
-        stageError?.let { err ->
-            Text(
-                text = "Folia WebView 诊断：$err",
-                color = Color(0xFFFCA5A5),
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(horizontal = 24.dp, vertical = 14.dp),
+        if (showDebugInfo) {
+            stageError?.let { err ->
+                Text(
+                    text = "Folia WebView 诊断：$err",
+                    color = Color(0xFFFCA5A5),
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun toProxiedCoverUrl(rawUrl: String?): String {
+    val trimmed = rawUrl?.trim().orEmpty()
+    if (trimmed.isEmpty()) return ""
+    val normalized = when {
+        trimmed.startsWith("https://") || trimmed.startsWith("http://") -> trimmed
+        trimmed.startsWith("//") -> "https:$trimmed"
+        else -> return trimmed
+    }
+    val encoded = java.net.URLEncoder.encode(normalized, "UTF-8")
+    return "https://$FOLIA_ORIGIN_HOST$FOLIA_COVER_PROXY_PATH?url=$encoded"
+}
+
+private fun serveProxiedCover(
+    httpClient: okhttp3.OkHttpClient,
+    rawUrl: String?,
+): WebResourceResponse {
+    val corsHeaders = mapOf(
+        "Access-Control-Allow-Origin" to "*",
+        "Access-Control-Allow-Methods" to "GET, OPTIONS",
+        "Cache-Control" to "public, max-age=86400",
+    )
+    val target = rawUrl?.trim().orEmpty()
+    if (!target.startsWith("https://") && !target.startsWith("http://")) {
+        return WebResourceResponse("text/plain", "UTF-8", 400, "Bad Request", corsHeaders, null)
+    }
+    return try {
+        val reqBuilder = okhttp3.Request.Builder()
+            .url(target)
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            )
+        when {
+            target.contains("gtimg.cn") || target.contains("y.qq.com") ->
+                reqBuilder.header("Referer", "https://y.qq.com/")
+            target.contains("music.126.net") || target.contains("163.com") ->
+                reqBuilder.header("Referer", "https://music.163.com/")
+        }
+        httpClient.newCall(reqBuilder.build()).execute().use { resp ->
+            val bytes = resp.body?.bytes()
+            if (!resp.isSuccessful || bytes == null || bytes.isEmpty()) {
+                return WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", corsHeaders, null)
+            }
+            val contentType = resp.header("Content-Type")
+                ?.substringBefore(';')
+                ?.trim()
+                ?.takeIf { it.startsWith("image/") }
+                ?: guessMimeType(target.substringBefore('?')).takeIf { it.startsWith("image/") }
+                ?: "image/jpeg"
+            WebResourceResponse(
+                contentType,
+                null,
+                200,
+                "OK",
+                corsHeaders,
+                java.io.ByteArrayInputStream(bytes),
             )
         }
+    } catch (e: Throwable) {
+        Log.w(TAG, "cover proxy failed for $target: ${e.message}")
+        WebResourceResponse("text/plain", "UTF-8", 502, "Bad Gateway", corsHeaders, null)
     }
 }
 
@@ -371,7 +446,7 @@ private fun buildStateJson(
     trackObj.put("id", track.id)
     trackObj.put("name", track.name)
     trackObj.put("singer", track.singer)
-    trackObj.put("picURL", track.picURL ?: "")
+    trackObj.put("picURL", toProxiedCoverUrl(track.picURL))
     root.put("track", trackObj)
 
     val arr = JSONArray()

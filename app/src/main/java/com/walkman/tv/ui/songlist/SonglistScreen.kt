@@ -40,7 +40,7 @@ import com.walkman.tv.ui.components.MediaCard
 import com.walkman.tv.ui.components.TvPill
 import kotlinx.coroutines.launch
 
-private val songlistSources = listOf(SourceID.KW, SourceID.WY, SourceID.KG, SourceID.TX)
+private val songlistSources = listOf(SourceID.QS, SourceID.KW, SourceID.WY, SourceID.KG, SourceID.TX)
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable

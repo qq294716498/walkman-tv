@@ -13,7 +13,10 @@ import org.json.JSONObject
  * Direct platform endpoints used as a last-resort fallback (iOS `BuiltInResolver`).
  * Only kw / wy are feasible without complex signing.
  */
-class BuiltInResolver(client: OkHttpClient) {
+class BuiltInResolver(
+    client: OkHttpClient,
+    private val qishui: com.walkman.tv.cloud.QishuiAccount? = null,
+) {
 
     data class ResolvedURL(val url: String, val warning: String? = null)
     class ResolveException(message: String) : Exception(message)
@@ -25,6 +28,11 @@ class BuiltInResolver(client: OkHttpClient) {
 
     suspend fun resolve(track: Track, quality: Quality): ResolvedURL = withContext(Dispatchers.IO) {
         when (track.source) {
+            SourceID.QS -> {
+                val u = qishui?.resolvePlaintextAudio(track.songmid, quality)
+                    ?: throw ResolveException("该汽水曲目需要 LX 音源脚本或换源播放")
+                ResolvedURL(u)
+            }
             SourceID.KW -> resolveKuwo(track.songmid, quality)
             SourceID.WY -> ResolvedURL(resolveNetEase(track.songmid))
             else -> throw ResolveException("内置直连暂不支持 ${track.source.displayName}")

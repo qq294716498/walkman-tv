@@ -208,14 +208,16 @@ data class Settings(
     /** Batch "下载全部": when a track is already downloaded but at a different quality than the
      *  chosen target, re-download it to match (true) vs. always skip already-downloaded (false). */
     val redownloadOnQualityChange: Boolean = true,
-    /** Sources that feed the discover (home) page. Spec docs/discover-page-spec-android-tv.md §2:
-     *  fixed 4 in order kw → wy → kg → tx, default all enabled. */
+    /** Sources that feed the discover (home) page. Default includes 汽水 + 酷我/网易云/酷狗/QQ. */
     val homeSources: Set<com.walkman.tv.data.model.SourceID> = setOf(
+        com.walkman.tv.data.model.SourceID.QS,
         com.walkman.tv.data.model.SourceID.KW,
         com.walkman.tv.data.model.SourceID.WY,
         com.walkman.tv.data.model.SourceID.KG,
         com.walkman.tv.data.model.SourceID.TX,
     ),
+    /** One-time migration flag so upgrades from older builds auto-enable Qishui on Recommend page once. */
+    val qishuiHomeSourceMigrated: Boolean = false,
 )
 
 /** App preferences persisted as JSON. */
@@ -223,14 +225,25 @@ class SettingsStore(context: Context) {
     private val store = JsonStore(
         File(context.filesDir, "settings.json"),
         Settings.serializer(),
-        Settings(),
+        Settings(qishuiHomeSourceMigrated = true),
     )
 
-    private val _settings = MutableStateFlow(Settings())
+    private val _settings = MutableStateFlow(Settings(qishuiHomeSourceMigrated = true))
     val settings: StateFlow<Settings> = _settings.asStateFlow()
 
     suspend fun loadAll() {
-        _settings.value = withContext(Dispatchers.IO) { store.load() }
+        val loaded = withContext(Dispatchers.IO) { store.load() }
+        val migrated = if (!loaded.qishuiHomeSourceMigrated) {
+            val updated = loaded.copy(
+                homeSources = loaded.homeSources + com.walkman.tv.data.model.SourceID.QS,
+                qishuiHomeSourceMigrated = true,
+            )
+            withContext(Dispatchers.IO) { store.save(updated) }
+            updated
+        } else {
+            loaded
+        }
+        _settings.value = migrated
     }
 
     suspend fun update(transform: (Settings) -> Settings) {

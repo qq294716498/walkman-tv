@@ -140,6 +140,7 @@ fun EmptyHint(text: String, modifier: Modifier = Modifier) {
 }
 
 fun SourceID.tint(): Color = when (this) {
+    SourceID.QS -> AppColors.SourceQs
     SourceID.KW -> AppColors.SourceKw
     SourceID.KG -> AppColors.SourceKg
     SourceID.TX -> AppColors.SourceTx

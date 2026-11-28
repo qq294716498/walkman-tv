@@ -19,21 +19,28 @@ interface SongCatalog {
  * Aggregated multi-platform search via each platform's own public API
  * (ported from iOS `Catalogs` / `KuwoCatalog`). Implements [MusicSearcher] for other-source.
  */
-class Catalogs(private val http: CatalogHttp) : MusicSearcher {
+class Catalogs(
+    private val http: CatalogHttp,
+    private val qishui: com.walkman.tv.cloud.QishuiAccount? = null,
+) : MusicSearcher {
 
     // Migu intentionally not registered for search — the platform's authenticated search API
     // requires a phone-bound login on top of the resourceinfo endpoint, so search-result
     // playback rarely works. Boards + songlists still include it.
-    private val services: Map<SourceID, SongCatalog> = listOf(
-        KuwoSearch(http), KugouSearch(http), NetEaseSearch(http), QQSearch(http),
-    ).associateBy { it.source }
+    private val services: Map<SourceID, SongCatalog> = buildList {
+        if (qishui != null) add(QishuiSearch(qishui))
+        add(KuwoSearch(http))
+        add(KugouSearch(http))
+        add(NetEaseSearch(http))
+        add(QQSearch(http))
+    }.associateBy { it.source }
 
     fun serviceFor(source: SourceID): SongCatalog? = services[source]
 
     override suspend fun search(source: SourceID, keyword: String, page: Int): List<Track> =
         runCatching { services[source]?.search(keyword, page) ?: emptyList() }.getOrDefault(emptyList())
 
-    /** Search every platform and interleave results (kw, wy, kg, tx, mg round-robin). */
+    /** Search every platform and interleave results (qs, kw, wy, kg, tx, mg round-robin). */
     suspend fun searchAll(keyword: String, page: Int = 1): List<Track> {
         val groups: Map<SourceID, List<Track>> = coroutineScope {
             services.values.map { svc ->
@@ -44,7 +51,7 @@ class Catalogs(private val http: CatalogHttp) : MusicSearcher {
     }
 
     private fun interleave(groups: Map<SourceID, List<Track>>): List<Track> {
-        val order = listOf(SourceID.KW, SourceID.WY, SourceID.KG, SourceID.TX, SourceID.MG)
+        val order = listOf(SourceID.QS, SourceID.KW, SourceID.WY, SourceID.KG, SourceID.TX, SourceID.MG)
         val iters = order.associateWith { (groups[it] ?: emptyList()).iterator() }
         val out = mutableListOf<Track>()
         var going = true
@@ -56,6 +63,14 @@ class Catalogs(private val http: CatalogHttp) : MusicSearcher {
             }
         }
         return out
+    }
+}
+
+private class QishuiSearch(private val qishui: com.walkman.tv.cloud.QishuiAccount) : SongCatalog {
+    override val source = SourceID.QS
+    override suspend fun search(keyword: String, page: Int): List<Track> {
+        val offset = ((page - 1).coerceAtLeast(0)) * 30
+        return qishui.searchTracks(keyword, limit = 30, offset = offset)
     }
 }
 

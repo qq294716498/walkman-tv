@@ -776,6 +776,7 @@ private fun NoSourcesHint(onNavigate: (NavSection) -> Unit) {
 }
 
 private fun com.walkman.tv.data.model.SourceID.tintColor(): Color = when (this) {
+  com.walkman.tv.data.model.SourceID.QS -> AppColors.SourceQs
   com.walkman.tv.data.model.SourceID.KW -> AppColors.SourceKw
   com.walkman.tv.data.model.SourceID.KG -> AppColors.SourceKg
   com.walkman.tv.data.model.SourceID.TX -> AppColors.SourceTx
