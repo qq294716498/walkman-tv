@@ -254,12 +254,33 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
       return@Box
     }
 
+    var foliaTemplateShuffleTick by remember { mutableStateOf(0) }
+    var foliaBgShuffleTick by remember { mutableStateOf(0) }
+    val effectiveFoliaTemplate = remember(track.id, settings.foliaRandomTemplate, settings.foliaTemplate, foliaTemplateShuffleTick) {
+      if (!settings.foliaRandomTemplate) {
+        settings.foliaTemplate
+      } else {
+        val pool = com.walkman.tv.data.store.FoliaTemplate.entries.filter { it != com.walkman.tv.data.store.FoliaTemplate.STILL }
+        val seed = abs(track.id.hashCode() * 31 + foliaTemplateShuffleTick * 17)
+        pool[seed % pool.size]
+      }
+    }
+    val effectiveFoliaBackground = remember(track.id, settings.foliaRandomBackground, settings.foliaBackground, foliaBgShuffleTick) {
+      if (!settings.foliaRandomBackground) {
+        settings.foliaBackground
+      } else {
+        val pool = com.walkman.tv.data.store.FoliaBackground.entries.filter { it != com.walkman.tv.data.store.FoliaBackground.PURE }
+        val seed = abs(track.id.hashCode() * 13 + foliaBgShuffleTick * 23)
+        pool[seed % pool.size]
+      }
+    }
+
     if (isFoliaWebViewActive) {
       FoliaWebViewStage(
         track = track,
         lyrics = lyrics,
-        template = settings.foliaTemplate,
-        background = settings.foliaBackground,
+        template = effectiveFoliaTemplate,
+        background = effectiveFoliaBackground,
         beatReactive = settings.foliaBeatReactive,
         glowEnabled = settings.foliaGlowEnabled,
         filmGrain = settings.foliaFilmGrain,
@@ -488,12 +509,16 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
     if (showLyricStyleDialog) {
       LyricStyleStudioDialog(
         settings = settings,
+        activeFoliaTemplate = effectiveFoliaTemplate,
+        activeFoliaBackground = effectiveFoliaBackground,
         currentMoodLabel = activeTheme?.moodLabel,
         currentAccent = effectiveAccent,
         currentBright = effectiveBright,
         onUpdateSettings = { transform ->
           scope.launch { appContainer.settingsStore.update(transform) }
         },
+        onShuffleTemplate = { foliaTemplateShuffleTick++ },
+        onShuffleBackground = { foliaBgShuffleTick++ },
         onRemixAiPalette = { aiRemixSeed++ },
         onDismiss = { showLyricStyleDialog = false },
       )

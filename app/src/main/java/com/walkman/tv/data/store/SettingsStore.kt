@@ -175,7 +175,9 @@ data class Settings(
      *  Off by default; requires explicit opt-in from Settings due to high GPU/RAM requirements. */
     val foliaWebViewEnabled: Boolean = false,
     val foliaTemplate: FoliaTemplate = FoliaTemplate.FUME,
+    val foliaRandomTemplate: Boolean = false,
     val foliaBackground: FoliaBackground = FoliaBackground.LATENT,
+    val foliaRandomBackground: Boolean = false,
     val foliaAiPalette: FoliaAiPalette = FoliaAiPalette.AUTO,
     val foliaBeatReactive: Boolean = true,
     val foliaGlowEnabled: Boolean = true,

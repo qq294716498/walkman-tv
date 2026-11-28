@@ -72,10 +72,14 @@ private enum class StudioTab(val label: String, val badge: String) {
 @Composable
 fun LyricStyleStudioDialog(
     settings: Settings,
+    activeFoliaTemplate: FoliaTemplate,
+    activeFoliaBackground: FoliaBackground,
     currentMoodLabel: String?,
     currentAccent: Color,
     currentBright: Color,
     onUpdateSettings: ((Settings) -> Settings) -> Unit,
+    onShuffleTemplate: () -> Unit,
+    onShuffleBackground: () -> Unit,
     onRemixAiPalette: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -141,7 +145,11 @@ fun LyricStyleStudioDialog(
                             val activeLabel = when (settings.lyricStyle) {
                                 LyricStyle.CLASSIC -> "经典"
                                 LyricStyle.APPLE -> "类苹果"
-                                LyricStyle.FOLIA_WEBVIEW -> "Folia · ${settings.foliaTemplate.label}"
+                                LyricStyle.FOLIA_WEBVIEW -> if (settings.foliaRandomTemplate) {
+                                    "随机 · ${activeFoliaTemplate.label.substringBefore(" · ")}"
+                                } else {
+                                    "Folia · ${activeFoliaTemplate.label}"
+                                }
                             }
                             Text(
                                 activeLabel,
@@ -270,15 +278,19 @@ fun LyricStyleStudioDialog(
                     when (activeTab) {
                         StudioTab.TEMPLATES -> TemplatesPane(
                             settings = settings,
+                            activeTemplate = activeFoliaTemplate,
                             accent = currentAccent,
                             bright = currentBright,
                             onUpdateSettings = onUpdateSettings,
+                            onShuffleTemplate = onShuffleTemplate,
                         )
                         StudioTab.BACKGROUNDS -> BackgroundsPane(
                             settings = settings,
+                            activeBackground = activeFoliaBackground,
                             accent = currentAccent,
                             bright = currentBright,
                             onUpdateSettings = onUpdateSettings,
+                            onShuffleBackground = onShuffleBackground,
                         )
                         StudioTab.AI_THEME -> AiThemePane(
                             settings = settings,
@@ -417,25 +429,27 @@ private fun CompactLyricStyleDialog(
 @Composable
 private fun TemplatesPane(
     settings: Settings,
+    activeTemplate: FoliaTemplate,
     accent: Color,
     bright: Color,
     onUpdateSettings: ((Settings) -> Settings) -> Unit,
+    onShuffleTemplate: () -> Unit,
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
+        columns = GridCells.Fixed(4),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(4.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        item(span = { GridItemSpan(3) }) {
+        item(span = { GridItemSpan(4) }) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 listOf(
-                    LyricStyle.CLASSIC to "居中简洁 · 保留黑胶转盘",
-                    LyricStyle.APPLE to "60fps 像素扫光 · 保留黑胶转盘",
+                    LyricStyle.CLASSIC to "居中简洁 · 保留转盘",
+                    LyricStyle.APPLE to "60fps 扫光 · 保留转盘",
                 ).forEach { (style, desc) ->
                     val active = settings.lyricStyle == style
                     TvFocusable(
@@ -456,9 +470,19 @@ private fun TemplatesPane(
                                     color = if (active) bright else Color.White.copy(alpha = 0.08f),
                                     shape = RoundedCornerShape(12.dp),
                                 )
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            NativeStylePreviewThumb(
+                                style = style,
+                                accent = accent,
+                                bright = bright,
+                                modifier = Modifier
+                                    .width(74.dp)
+                                    .height(42.dp)
+                                    .clip(RoundedCornerShape(7.dp)),
+                            )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     style.label,
@@ -477,74 +501,119 @@ private fun TemplatesPane(
             }
         }
 
-        item(span = { GridItemSpan(3) }) {
+        item(span = { GridItemSpan(4) }) {
             Text(
-                "Folia 动态舞台模板（18 款 · 全屏沉浸无转盘）",
+                "Folia 动态舞台模板（18 款 + 随歌随机 · 全屏沉浸无转盘）",
                 color = AppColors.TextSecondary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
 
+        // 随机模板卡片
+        item(key = "folia-random-template") {
+            val active = settings.lyricStyle == LyricStyle.FOLIA_WEBVIEW && settings.foliaRandomTemplate
+            TvFocusable(
+                onClick = {
+                    if (active) {
+                        onShuffleTemplate()
+                    } else {
+                        onUpdateSettings {
+                            it.copy(
+                                lyricStyle = LyricStyle.FOLIA_WEBVIEW,
+                                foliaRandomTemplate = true,
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                focusedScale = 1.04f,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (active) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.04f))
+                        .border(
+                            width = if (active) 2.dp else 1.dp,
+                            color = if (active) bright else Color.White.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .padding(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ShufflePreviewThumb(
+                        accent = accent,
+                        bright = bright,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(66.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        if (active) "随机 · ${activeTemplate.label.substringBefore(" · ")}" else "随机",
+                        color = if (active) bright else AppColors.TextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
         items(FoliaTemplate.entries, key = { it.id }) { tpl ->
-            val active = settings.lyricStyle == LyricStyle.FOLIA_WEBVIEW && settings.foliaTemplate == tpl
-            val parts = tpl.label.split(" · ")
-            val zhName = parts.firstOrNull() ?: tpl.label
-            val enName = parts.getOrNull(1) ?: tpl.id
+            val active = settings.lyricStyle == LyricStyle.FOLIA_WEBVIEW &&
+                !settings.foliaRandomTemplate &&
+                settings.foliaTemplate == tpl
+            val zhName = tpl.label.substringBefore(" · ")
             TvFocusable(
                 onClick = {
                     onUpdateSettings {
                         it.copy(
                             lyricStyle = LyricStyle.FOLIA_WEBVIEW,
+                            foliaRandomTemplate = false,
                             foliaTemplate = tpl,
                         )
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                focusedScale = 1.03f,
+                focusedScale = 1.04f,
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(82.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(
-                            if (active) accent.copy(alpha = 0.24f)
-                            else Color.White.copy(alpha = 0.05f)
+                            if (active) accent.copy(alpha = 0.22f)
+                            else Color.White.copy(alpha = 0.04f)
                         )
                         .border(
-                            width = if (active) 1.5.dp else 1.dp,
-                            color = if (active) bright else Color.White.copy(alpha = 0.08f),
+                            width = if (active) 2.dp else 1.dp,
+                            color = if (active) bright else Color.White.copy(alpha = 0.10f),
                             shape = RoundedCornerShape(12.dp),
                         )
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
+                        .padding(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            zhName,
-                            color = if (active) Color.White else AppColors.TextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            if (active) "✓" else enName,
-                            color = if (active) bright else AppColors.TextMuted,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
+                    FoliaTemplateThumb(
+                        template = tpl,
+                        accent = accent,
+                        bright = bright,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(66.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                    )
+                    Spacer(Modifier.height(5.dp))
                     Text(
-                        tpl.desc,
-                        color = if (active) Color.White.copy(alpha = 0.85f) else AppColors.TextSecondary,
-                        fontSize = 10.sp,
-                        lineHeight = 14.sp,
-                        maxLines = 2,
+                        if (active) "$zhName ✓" else zhName,
+                        color = if (active) bright else AppColors.TextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -556,18 +625,20 @@ private fun TemplatesPane(
 @Composable
 private fun BackgroundsPane(
     settings: Settings,
+    activeBackground: FoliaBackground,
     accent: Color,
     bright: Color,
     onUpdateSettings: ((Settings) -> Settings) -> Unit,
+    onShuffleBackground: () -> Unit,
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
+        columns = GridCells.Fixed(3),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(4.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        item(span = { GridItemSpan(2) }) {
+        item(span = { GridItemSpan(3) }) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -614,20 +685,79 @@ private fun BackgroundsPane(
                 }
             }
         }
-        item(span = { GridItemSpan(2) }) {
+        item(span = { GridItemSpan(3) }) {
             Text(
-                "Folia 原版动态背景着色器（6 种，与当前模板实时叠加）",
+                "Folia 原版动态背景着色器（6 种 + 随机，与当前模板实时叠加）",
                 color = AppColors.TextSecondary,
                 fontSize = 12.sp,
             )
         }
+        // 随机背景卡片
+        item(key = "folia-random-bg") {
+            val active = settings.foliaRandomBackground
+            TvFocusable(
+                onClick = {
+                    if (active) {
+                        onShuffleBackground()
+                    } else {
+                        onUpdateSettings {
+                            it.copy(
+                                lyricStyle = LyricStyle.FOLIA_WEBVIEW,
+                                foliaRandomBackground = true,
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                focusedScale = 1.03f,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (active) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.04f))
+                        .border(
+                            width = if (active) 2.dp else 1.dp,
+                            color = if (active) bright else Color.White.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .padding(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ShufflePreviewThumb(
+                        accent = accent,
+                        bright = bright,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(78.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (active) "随机 · ${activeBackground.label.substringBefore(" · ")}" else "随机背景",
+                        color = if (active) bright else AppColors.TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                    Text(
+                        "切歌自动随机切换背景",
+                        color = AppColors.TextSecondary,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
         items(FoliaBackground.entries, key = { it.id }) { bg ->
-            val active = settings.foliaBackground == bg
+            val active = !settings.foliaRandomBackground && settings.foliaBackground == bg
+            val zhName = bg.label.substringBefore(" · ")
             TvFocusable(
                 onClick = {
                     onUpdateSettings {
                         it.copy(
                             lyricStyle = LyricStyle.FOLIA_WEBVIEW,
+                            foliaRandomBackground = false,
                             foliaBackground = bg,
                         )
                     }
@@ -638,48 +768,39 @@ private fun BackgroundsPane(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(
                             if (active) accent.copy(alpha = 0.22f)
-                            else Color.White.copy(alpha = 0.05f)
+                            else Color.White.copy(alpha = 0.04f)
                         )
                         .border(
-                            width = if (active) 1.5.dp else 1.dp,
-                            color = if (active) bright else Color.White.copy(alpha = 0.08f),
-                            shape = RoundedCornerShape(14.dp),
+                            width = if (active) 2.dp else 1.dp,
+                            color = if (active) bright else Color.White.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(12.dp),
                         )
-                        .padding(12.dp),
+                        .padding(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Box(
+                    FoliaBackgroundThumb(
+                        bg = bg,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(22.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(Color(bg.previewColorA), Color(bg.previewColorB))
-                                )
-                            ),
+                            .height(78.dp)
+                            .clip(RoundedCornerShape(8.dp)),
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            bg.label,
-                            color = if (active) Color.White else AppColors.TextPrimary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (active) {
-                            Text("当前 ✓", color = bright, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (active) "$zhName ✓" else zhName,
+                        color = if (active) bright else AppColors.TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
                     Text(
                         bg.desc,
                         color = AppColors.TextSecondary,
                         fontSize = 10.sp,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
