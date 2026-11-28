@@ -9,6 +9,7 @@ data class SonglistInfo(
     val picURL: String? = null,
     val trackCount: Int? = null,
     val playCount: String? = null,
+    val ownerId: String? = null,
 )
 
 data class SonglistDetail(

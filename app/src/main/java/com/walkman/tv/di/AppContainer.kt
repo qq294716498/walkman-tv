@@ -56,21 +56,22 @@ class AppContainer(val appContext: Context) {
     }
 
     val catalogHttp by lazy { CatalogHttp(httpClient) }
+    val qishuiAccount by lazy { com.walkman.tv.cloud.QishuiAccount(appContext, httpClient) }
     val neteaseAccount by lazy { com.walkman.tv.cloud.NeteaseAccount(appContext, catalogHttp) }
     val qqAccount by lazy { com.walkman.tv.cloud.QqAccount(appContext, httpClient, catalogHttp) }
     val cloudSelection by lazy { com.walkman.tv.cloud.CloudSelection(appContext) }
 
-    val catalogs by lazy { Catalogs(catalogHttp) }
+    val catalogs by lazy { Catalogs(catalogHttp, qishuiAccount) }
     val hotSearch by lazy { com.walkman.tv.source.catalog.HotSearch(catalogHttp) }
     val boards by lazy { Boards(catalogHttp) }
-    val songlists by lazy { Songlists(catalogHttp) }
+    val songlists by lazy { Songlists(catalogHttp, qishuiAccount) }
     /** Backs the recommend (discover) right column — heroes / recommendations / boards. */
     val homeStore by lazy { com.walkman.tv.ui.recommend.HomeStore(songlists, boards) }
     val mvResolver by lazy { MvResolver(catalogHttp) }
 
     private val scriptHttp by lazy { ScriptHttpClient(httpClient) }
-    private val builtInResolver by lazy { BuiltInResolver(httpClient) }
-    private val builtInLyricResolver by lazy { BuiltInLyricResolver(catalogHttp) }
+    private val builtInResolver by lazy { BuiltInResolver(httpClient, qishuiAccount) }
+    private val builtInLyricResolver by lazy { BuiltInLyricResolver(catalogHttp, qishuiAccount) }
     private val otherSourceFinder by lazy { OtherSourceFinder(catalogs) }
 
     val sourceManager: SourceManager by lazy {

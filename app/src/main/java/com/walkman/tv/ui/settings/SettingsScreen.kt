@@ -163,6 +163,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Section("播放音质") {
+            Text(
+                "播放时优先请求首选音质，曲目缺失或失败时自动逐档降级，每次切歌都从首选音质开始尝试",
+                color = AppColors.TextSecondary,
+                fontSize = 12.sp,
+            )
             // 8 tiers including extended (hires/atmos/master) — wrap so they fit on any TV width.
             // Each pill carries a small icon to make the tier intent scannable in one glance.
             androidx.compose.foundation.layout.FlowRow(
@@ -214,7 +219,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         }
 
         Section("内置直连兜底") {
-            ToggleRow("脚本失败时尝试内置直连（kw/wy）", settings.fallbackEnabled) {
+            ToggleRow("脚本失败时尝试内置直连（qs/kw/wy）", settings.fallbackEnabled) {
                 scope.launch { appContainer.settingsStore.update { it.copy(fallbackEnabled = !it.fallbackEnabled) } }
             }
         }

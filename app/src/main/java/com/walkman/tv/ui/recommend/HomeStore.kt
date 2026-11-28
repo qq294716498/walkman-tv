@@ -100,7 +100,7 @@ class HomeStore(
             for (i in 0 until maxSize) {
                 for (s in srcs) tails[s]?.getOrNull(i)?.let { recs += it }
             }
-            val recommendations = recs.take(12)
+            val recommendations = recs.take(15)
 
             // Step 4: boards — parallel fetch, then quota-balance across enabled sources.
             val boardsBySource: Map<SourceID, List<BoardInfo>> = coroutineScope {

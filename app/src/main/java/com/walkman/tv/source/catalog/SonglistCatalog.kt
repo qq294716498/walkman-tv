@@ -23,10 +23,17 @@ interface SonglistService {
 }
 
 /** Songlist (歌单) plaza via each platform's API, ported from iOS `Songlists`. */
-class Songlists(private val http: CatalogHttp) {
-    private val services = listOf(
-        KuwoSonglist(http), NetEaseSonglist(http), KugouSonglist(http), QQSonglist(http),
-    )
+class Songlists(
+    private val http: CatalogHttp,
+    private val qishui: com.walkman.tv.cloud.QishuiAccount? = null,
+) {
+    private val services: List<SonglistService> = buildList {
+        if (qishui != null) add(QishuiSonglist(qishui))
+        add(KuwoSonglist(http))
+        add(NetEaseSonglist(http))
+        add(KugouSonglist(http))
+        add(QQSonglist(http))
+    }
     fun serviceFor(source: SourceID): SonglistService? = services.firstOrNull { it.source == source }
     fun servicesAll(): List<SonglistService> = services
 
@@ -35,6 +42,80 @@ class Songlists(private val http: CatalogHttp) {
         services.map { svc ->
             async { runCatching { svc.search(keyword, page) }.getOrDefault(emptyList()) }
         }.awaitAll().flatten()
+    }
+}
+
+// MARK: - Qishui (汽水音乐)
+
+private class QishuiSonglist(
+    private val qishui: com.walkman.tv.cloud.QishuiAccount,
+) : SonglistService {
+    override val source = SourceID.QS
+    override val orders = listOf(
+        SonglistOrder("hot", "热门"),
+        SonglistOrder("scene", "场景"),
+    )
+
+    override suspend fun fetchTags(): List<SonglistTagGroup> = listOf(
+        SonglistTagGroup(
+            "热门场景",
+            listOf(
+                SonglistTag("流行", "流行"),
+                SonglistTag("开车", "开车"),
+                SonglistTag("热歌", "热歌"),
+                SonglistTag("欧美", "欧美"),
+                SonglistTag("轻音乐", "轻音乐"),
+                SonglistTag("华语", "华语"),
+                SonglistTag("说唱", "说唱"),
+                SonglistTag("摇滚", "摇滚"),
+                SonglistTag("民谣", "民谣"),
+                SonglistTag("助眠", "助眠"),
+                SonglistTag("运动", "运动"),
+                SonglistTag("古风", "古风"),
+            ),
+        ),
+    )
+
+    override suspend fun fetchRecommended(
+        order: SonglistOrder,
+        tag: SonglistTag,
+        page: Int,
+    ): List<SonglistInfo> {
+        val offset = ((page - 1).coerceAtLeast(0)) * 20
+        if (tag.id.isNotEmpty()) {
+            return runCatching { qishui.searchPlaylists(tag.name, limit = 24, offset = offset) }
+                .getOrDefault(emptyList())
+        }
+        val queries = if (order.id == "scene") {
+            listOf("开车", "氛围感")
+        } else {
+            listOf("热门歌单", "汽水推荐")
+        }
+        val combined = mutableListOf<SonglistInfo>()
+        for (q in queries) {
+            val batch = runCatching { qishui.searchPlaylists(q, limit = 16, offset = offset) }
+                .getOrDefault(emptyList())
+            combined += batch
+        }
+        return combined
+            .distinctBy { it.id }
+            .sortedByDescending { !it.picURL.isNullOrBlank() }
+            .take(24)
+    }
+
+    override suspend fun fetchDetail(list: SonglistInfo): SonglistDetail {
+        val tracks = runCatching { qishui.playlistTracks(list.id, list.ownerId.orEmpty()) }
+            .getOrDefault(emptyList())
+        return SonglistDetail(
+            info = list.copy(trackCount = list.trackCount ?: tracks.size),
+            tracks = tracks,
+        )
+    }
+
+    override suspend fun search(keyword: String, page: Int): List<SonglistInfo> {
+        val offset = ((page - 1).coerceAtLeast(0)) * 24
+        return runCatching { qishui.searchPlaylists(keyword, limit = 24, offset = offset) }
+            .getOrDefault(emptyList())
     }
 }
 

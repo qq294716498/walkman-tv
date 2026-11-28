@@ -62,7 +62,8 @@ object AppColors {
     val LyricActive: Color get() = BrandBright            // 比 Selected 更亮，区分「当前演唱行」vs「选中」
     val LyricIdle = Color(0xFF888888)
 
-    // Source tints (酷我/酷狗/QQ/网易/咪咕/本地) — from DesignSystem.swift
+    // Source tints (汽水/酷我/酷狗/QQ/网易/咪咕/本地) — from DesignSystem.swift
+    val SourceQs = Color(0xFF00E5A0)
     val SourceKw = Color(0xFFF26D4D)
     val SourceKg = Color(0xFF1AB0F0)
     val SourceTx = Color(0xFF33CC8C)

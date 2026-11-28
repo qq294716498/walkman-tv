@@ -238,6 +238,7 @@ private fun SearchInputBox(query: String) {
 // songlists still surface it; only the search path is opted out.
 private val PLATFORMS_LABELS: List<Pair<SourceID?, String>> = listOf(
     null to "全部",
+    SourceID.QS to "汽水",
     SourceID.KW to "酷我",
     SourceID.KG to "酷狗",
     SourceID.TX to "QQ音乐",
@@ -338,6 +339,7 @@ private fun SectionHeader(text: String) {
 
 /** Brand tint per platform — matches the songlist/board source chips. */
 private fun sourceTint(source: SourceID): androidx.compose.ui.graphics.Color = when (source) {
+    SourceID.QS -> AppColors.SourceQs
     SourceID.KW -> AppColors.SourceKw
     SourceID.KG -> AppColors.SourceKg
     SourceID.TX -> AppColors.SourceTx

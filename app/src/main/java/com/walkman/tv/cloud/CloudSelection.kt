@@ -8,13 +8,13 @@ import kotlinx.coroutines.flow.asStateFlow
 class CloudSelection(context: Context) {
     private val prefs = context.getSharedPreferences("cloud_selection", Context.MODE_PRIVATE)
     private val mutableSource = MutableStateFlow(
-        SourceID.fromKey(prefs.getString("active_source", "wy"))?.takeIf {
-            it == SourceID.WY || it == SourceID.TX
-        } ?: SourceID.WY
+        SourceID.fromKey(prefs.getString("active_source", "qs"))?.takeIf {
+            it == SourceID.QS || it == SourceID.WY || it == SourceID.TX
+        } ?: SourceID.QS
     )
     val source = mutableSource.asStateFlow()
     fun select(source: SourceID) {
-        require(source == SourceID.WY || source == SourceID.TX)
+        require(source == SourceID.QS || source == SourceID.WY || source == SourceID.TX)
         prefs.edit().putString("active_source", source.key).apply()
         mutableSource.value = source
     }
