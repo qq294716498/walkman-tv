@@ -97,6 +97,7 @@ class AppContainer(val appContext: Context) {
 
     val scriptStore: ScriptStore by lazy { ScriptStore(appContext, sourceManager) }
     val libraryStore: LibraryStore by lazy { LibraryStore(appContext) }
+    val lxSyncClient by lazy { com.walkman.tv.cloud.LxSyncClient(appContext, httpClient, libraryStore) }
     val settingsStore: SettingsStore by lazy { SettingsStore(appContext) }
     val playbackSnapshotStore: PlaybackSnapshotStore by lazy { PlaybackSnapshotStore(appContext) }
     val searchHistoryStore: SearchHistoryStore by lazy { SearchHistoryStore(appContext) }

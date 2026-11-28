@@ -158,13 +158,16 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    var showLxSync by remember { mutableStateOf(false) }
+    val lxSyncState by appContainer.lxSyncClient.state.collectAsState()
+
     Column(
         modifier = modifier.fillMaxSize().padding(top = 8.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Section("播放音质") {
             Text(
-                "播放时优先请求首选音质，曲目缺失或失败时自动逐档降级，每次切歌都从首选音质开始尝试",
+                "播放时优先请求首选音质，当前平台缺失时优先跨平台同音质换源，均不可用再自动逐档降级，每次切歌均从首选音质重新尝试",
                 color = AppColors.TextSecondary,
                 fontSize = 12.sp,
             )
@@ -582,6 +585,48 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        Section("落雪歌单同步（LX Sync Server）") {
+            Text(
+                if (lxSyncState.connected) {
+                    buildString {
+                        append("已连接：")
+                        if (lxSyncState.serverName.isNotBlank()) append("${lxSyncState.serverName} · ")
+                        append(lxSyncState.serverUrl)
+                        if (lxSyncState.statusMessage.isNotBlank()) append("（${lxSyncState.statusMessage}）")
+                    }
+                } else {
+                    "连接自建的 lx-music-sync-server，自动同步「我喜欢的」与全部自建歌单到音乐库"
+                },
+                color = if (lxSyncState.connected) AppColors.BrandPrimary else AppColors.TextSecondary,
+                fontSize = 12.sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TvPill(onClick = { showLxSync = true }, selected = true) {
+                    Text(if (lxSyncState.connected) "配置服务器 / 同步" else "配置 LX 同步服务器", fontSize = 13.sp)
+                }
+                if (lxSyncState.connected) {
+                    TvPill(onClick = {
+                        if (!lxSyncState.syncing) {
+                            scope.launch {
+                                appContainer.lxSyncClient.connectAndSync(
+                                    lxSyncState.serverUrl,
+                                    lxSyncState.authCode,
+                                    lxSyncState.syncMode,
+                                )
+                            }
+                        }
+                    }) {
+                        Text(if (lxSyncState.syncing) "同步中…" else "立即同步", fontSize = 13.sp)
+                    }
+                }
+            }
+            lxSyncState.error?.let { err ->
+                Spacer(Modifier.height(6.dp))
+                Text("上次同步失败：$err", color = AppColors.Danger, fontSize = 11.sp)
+            }
+        }
+
         Section("调试") {
             ToggleRow("显示调试信息", settings.showDebugInfo) {
                 scope.launch { appContainer.settingsStore.update { it.copy(showDebugInfo = !it.showDebugInfo) } }
@@ -595,6 +640,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         }
 
         UpdateSection()
+    }
+
+    if (showLxSync) {
+        com.walkman.tv.ui.components.LxSyncDialog(onDismiss = { showLxSync = false })
     }
 
     pendingDelete?.let { target ->

@@ -153,6 +153,48 @@ class LibraryStore(context: Context) {
         persist()
     }
 
+    /**
+     * Atomically apply playlists received from an LX Music Sync Server (`list_sync_set_list_data`).
+     * Preserves synced user playlist IDs so subsequent snapshot syncs stay consistent, while keeping
+     * any non-LX local playlists intact if [replaceUserLists] is false.
+     */
+    suspend fun applyLxSync(
+        loveTracks: List<Track>,
+        syncedUserLists: List<Playlist>,
+        replaceAll: Boolean,
+    ) {
+        val now = System.currentTimeMillis()
+        _love.value = if (replaceAll) {
+            _love.value.copy(
+                tracks = loveTracks.distinctBy { it.id },
+                updatedAt = now,
+            )
+        } else {
+            val seen = loveTracks.mapTo(HashSet()) { it.id }
+            val keptLocal = _love.value.tracks.filter { seen.add(it.id) }
+            _love.value.copy(
+                tracks = (loveTracks + keptLocal).distinctBy { it.id },
+                updatedAt = now,
+            )
+        }
+
+        _userLists.value = if (replaceAll) {
+            syncedUserLists.map { it.copy(tracks = it.tracks.distinctBy { t -> t.id }, updatedAt = now) }
+        } else {
+            val byId = LinkedHashMap<String, Playlist>()
+            syncedUserLists.forEach { pl ->
+                byId[pl.id] = pl.copy(tracks = pl.tracks.distinctBy { t -> t.id }, updatedAt = now)
+            }
+            _userLists.value.forEach { existing ->
+                if (!byId.containsKey(existing.id) && byId.values.none { it.name == existing.name }) {
+                    byId[existing.id] = existing
+                }
+            }
+            byId.values.toList()
+        }
+        persist()
+    }
+
     private suspend fun persist() = withContext(Dispatchers.IO) {
         store.save(LibraryData(_love.value, _history.value, _userLists.value))
     }

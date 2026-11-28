@@ -73,75 +73,100 @@ class SourceManager(
     private fun scriptFor(source: SourceID, action: String): LoadedScript? =
         scriptsFor(source, action).firstOrNull()
 
-    /** Resolve a play URL — mirrors `resolveMusicURL`. */
+    /**
+     * Resolve a play URL with **tier-first across platforms**:
+     * 1. Try [preferred] quality on the original platform's scripts.
+     * 2. If unavailable, search other platforms (same title + same singer via [OtherSourceFinder])
+     *    and try the **exact same [tier]** before downgrading quality.
+     * 3. Only if no platform can provide [tier], step down one quality tier and repeat.
+     * 4. Built-in direct fallback if all scripts fail and [fallbackEnabled] is true.
+     */
     suspend fun resolveMusicURL(track: Track, quality: Quality? = null): ResolvedTrack {
-        val preferred = quality ?: Quality.K320
+        val preferred = quality ?: Quality.MASTER
+        val tiers = qualityCascade(preferred, track.qualities.toSet(), emptySet())
+        val originalScripts = scriptsFor(track.source, "musicUrl")
+        val timedOutScripts = HashSet<String>()
 
-        val scripts = scriptsFor(track.source, "musicUrl")
-        scripts.forEachIndexed { scriptIdx, ls ->
-            val scriptQs = ls.capabilities.sources[track.source]?.qualities?.toSet() ?: emptySet()
-            val first = pickPlayQuality(preferred, track.qualities.toSet(), scriptQs)
-            val cascade = qualityCascade(first, track.qualities.toSet(), scriptQs)
-            for (q in cascade) {
-                var timedOut = false
-                runCatching { resolveViaScript(track, q, ls) }
+        var alternativesLoaded = false
+        var alternatives: List<Track> = emptyList()
+        suspend fun loadAlternatives(): List<Track> {
+            if (!alternativesLoaded) {
+                alternativesLoaded = true
+                alternatives = runCatching { otherSourceFinder.findMatches(track) }
+                    .getOrDefault(emptyList())
+                    .take(5)
+            }
+            return alternatives
+        }
+
+        fun scriptSupportsTier(ls: LoadedScript, source: SourceID, tier: Quality): Boolean {
+            val qs = ls.capabilities.sources[source]?.qualities?.toSet() ?: emptySet()
+            return tier == Quality.K128 || qs.isEmpty() || qs.contains(tier)
+        }
+
+        for (tier in tiers) {
+            // 1. Original platform at current tier
+            originalScripts.forEachIndexed { scriptIdx, ls ->
+                if (ls.script.id in timedOutScripts) return@forEachIndexed
+                if (!scriptSupportsTier(ls, track.source, tier)) return@forEachIndexed
+                runCatching { resolveViaScript(track, tier, ls) }
                     .onSuccess { url ->
                         val warn = when {
                             scriptIdx > 0 -> "已切换到音源「${ls.script.name}」"
-                            q != preferred -> "${preferred.displayName} 不可用，已自动降档至 ${q.displayName}"
+                            tier != preferred -> "${preferred.displayName} 不可用，已自动降档至 ${tier.displayName}"
                             else -> null
                         }
-                        return ResolvedTrack(url, ResolveOrigin.Script(ls.script.name), q, warn)
+                        return ResolvedTrack(url, ResolveOrigin.Script(ls.script.name), tier, warn)
                     }
                     .onFailure {
-                        Log.d(TAG, "script '${ls.script.name}' @${q.key} failed: ${it.message}")
-                        timedOut = it is JsScriptRuntime.ScriptTimeoutException
+                        Log.d(TAG, "script '${ls.script.name}' @${tier.key} failed: ${it.message}")
+                        if (it is JsScriptRuntime.ScriptTimeoutException) timedOutScripts.add(ls.script.id)
                     }
-                // An unresponsive script won't answer at a lower tier either; don't wait out the
-                // timeout once per tier (that was up to a minute of silence per song).
-                if (timedOut) break
+            }
+
+            // 2. Other platforms (same title + same singer) at the SAME tier before downgrading!
+            val alts = loadAlternatives()
+            for (alt in alts) {
+                val altScripts = scriptsFor(alt.source, "musicUrl")
+                for (altLs in altScripts) {
+                    if (altLs.script.id in timedOutScripts) continue
+                    if (!scriptSupportsTier(altLs, alt.source, tier)) continue
+                    runCatching { resolveViaScript(alt, tier, altLs) }
+                        .onSuccess { url ->
+                            val warn = buildString {
+                                append("原 ${track.source.displayName} 源无 ${tier.displayName}，已换到 ${alt.source.displayName}")
+                                if (tier != preferred) append("（降档至 ${tier.displayName}）")
+                            }
+                            return ResolvedTrack(url, ResolveOrigin.OtherSource(alt.source), tier, warn)
+                        }
+                        .onFailure {
+                            Log.d(TAG, "other-source ${alt.source.key} '${altLs.script.name}' @${tier.key} failed: ${it.message}")
+                            if (it is JsScriptRuntime.ScriptTimeoutException) timedOutScripts.add(altLs.script.id)
+                        }
+                }
             }
         }
-
-        tryOtherSources(track, preferred)?.let { return it }
 
         if (fallbackEnabled) {
             runCatching { builtIn.resolve(track, preferred) }.getOrNull()?.let { res ->
                 return ResolvedTrack(res.url, ResolveOrigin.DirectFallback, preferred, res.warning)
             }
-        }
-
-        if (scriptFor(track.source, "musicUrl") == null) {
-            throw SourceException("没有脚本提供 ${track.source.displayName} 源，请到设置 → 自定义音源 导入脚本")
-        }
-        throw SourceException("这首 ${track.source.displayName} 歌曲无法获取播放地址，换一首或换个能用的脚本")
-    }
-
-    private suspend fun tryOtherSources(track: Track, preferred: Quality): ResolvedTrack? {
-        val alternatives = otherSourceFinder.findMatches(track)
-        if (alternatives.isEmpty()) return null
-        for (alt in alternatives.take(5)) {
-            val altLS = scriptFor(alt.source, "musicUrl") ?: continue
-            val altScriptQs = altLS.capabilities.sources[alt.source]?.qualities?.toSet() ?: emptySet()
-            val first = pickPlayQuality(preferred, alt.qualities.toSet(), altScriptQs)
-            val cascade = qualityCascade(first, alt.qualities.toSet(), altScriptQs)
-            for (q in cascade) {
-                var timedOut = false
-                runCatching { resolveViaScript(alt, q, altLS) }
-                    .onSuccess { url ->
-                        val warn = buildString {
-                            append("原 ${track.source.displayName} 源无法获取播放地址，已换到 ${alt.source.displayName}")
-                            if (q != preferred) append("（已降档至 ${q.displayName}）")
-                        }
-                        return ResolvedTrack(url, ResolveOrigin.OtherSource(alt.source), q, warn)
-                    }
-                    .onFailure {
-                        timedOut = it is JsScriptRuntime.ScriptTimeoutException
-                    }
-                if (timedOut) break
+            for (alt in loadAlternatives()) {
+                runCatching { builtIn.resolve(alt, preferred) }.getOrNull()?.let { res ->
+                    return ResolvedTrack(
+                        res.url,
+                        ResolveOrigin.OtherSource(alt.source),
+                        preferred,
+                        res.warning ?: "已换到 ${alt.source.displayName} 直连播放",
+                    )
+                }
             }
         }
-        return null
+
+        if (originalScripts.isEmpty() && _loaded.value.none { it.capabilities.sources.values.any { c -> "musicUrl" in c.actions } }) {
+            throw SourceException("没有脚本提供 ${track.source.displayName} 源，请到设置 → 自定义音源 导入脚本")
+        }
+        throw SourceException("这首 ${track.source.displayName} 歌曲在各平台均无法获取播放地址，换一首或检查自定义音源")
     }
 
     private suspend fun resolveViaScript(track: Track, quality: Quality, ls: LoadedScript): String {

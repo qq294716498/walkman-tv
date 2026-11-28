@@ -59,6 +59,7 @@ class LocalServer private constructor(
         "/script" -> html(SCRIPT_HTML)
         "/playlist-name" -> html(PLAYLIST_NAME_HTML)
         "/songlist-url" -> html(SONGLIST_URL_HTML)
+        "/lx-sync" -> html(LX_SYNC_HTML)
         "" -> html(INDEX_HTML)
         else -> notFound()
     }
@@ -106,6 +107,16 @@ class LocalServer private constructor(
                     html(donePage("已上传落雪歌单文件（${bytes.size / 1024} KB），电视正在导入…"))
                 } else {
                     html(donePage("未收到文件，请重新选择 .lxmc 或 .json 文件"))
+                }
+            }
+            "/api/lx-sync" -> {
+                val url = params["url"]?.firstOrNull().orEmpty().trim()
+                val code = params["code"]?.firstOrNull().orEmpty().trim()
+                if (url.isNotEmpty()) {
+                    events.postQrLxSyncConfig(url, code)
+                    html(donePage("已发送到电视，正在连接同步服务器…"))
+                } else {
+                    html(donePage("请填写服务器地址"))
                 }
             }
             else -> notFound()
@@ -287,6 +298,21 @@ class LocalServer private constructor(
               <form class="card" method="POST" action="/api/script-file" enctype="multipart/form-data">
                 <input type="file" name="file">
                 <button>上传脚本文件</button>
+              </form>
+            </body></html>
+        """.trimIndent()
+
+        private val LX_SYNC_HTML = """
+            <!doctype html><html><head><meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>LX 歌单同步 · 好听-TV</title>$PAGE_CSS</head>
+            <body>
+              <h2>落雪音乐歌单同步（LX Sync Server）</h2>
+              <p>填写你自己部署的 <b>lx-music-sync-server</b> 地址和同步密码，发送后电视将自动连接并同步歌单。</p>
+              <form class="card" method="POST" action="/api/lx-sync">
+                <input name="url" placeholder="服务器地址，例如 http://192.168.1.10:9527" required autofocus>
+                <input name="code" type="password" placeholder="同步密码（与服务端 users.password 一致）">
+                <button>发送到电视并同步</button>
               </form>
             </body></html>
         """.trimIndent()

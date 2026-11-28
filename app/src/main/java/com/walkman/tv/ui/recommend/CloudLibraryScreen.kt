@@ -104,6 +104,7 @@ fun CloudLibraryScreen(
     var detail by remember { mutableStateOf<CloudDetailView?>(null) }
     var loadingDetail by remember { mutableStateOf(false) }
     var showAccountPreview by remember { mutableStateOf(false) }
+    var showLxSync by remember { mutableStateOf(false) }
 
     val qishui by appContainer.qishuiAccount.state.collectAsState()
     val netease by appContainer.neteaseAccount.state.collectAsState()
@@ -331,6 +332,7 @@ fun CloudLibraryScreen(
                         accountCount = accounts.size,
                         onFm = { openNeteaseMusic("私人 FM") },
                         onHeart = { openNeteaseMusic("心动模式") },
+                        onLxSync = { showLxSync = true },
                         onManageAccounts = { showAccountPreview = true },
                     )
                 }
@@ -572,6 +574,10 @@ fun CloudLibraryScreen(
             CloudAccountDialog(onDismiss = { showAccountPreview = false })
         }
 
+        if (showLxSync) {
+            com.walkman.tv.ui.components.LxSyncDialog(onDismiss = { showLxSync = false })
+        }
+
         accountError?.let { message ->
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { accountError = null },
@@ -788,6 +794,7 @@ private fun CloudHeader(
     accountCount: Int,
     onFm: () -> Unit,
     onHeart: () -> Unit,
+    onLxSync: () -> Unit,
     onManageAccounts: () -> Unit,
 ) {
     val activeSummary = listOfNotNull(
@@ -825,6 +832,7 @@ private fun CloudHeader(
             TvPill(onClick = onFm) { Text("私人 FM", fontSize = 12.sp) }
             TvPill(onClick = onHeart) { Text("心动模式", fontSize = 12.sp) }
         }
+        TvPill(onClick = onLxSync) { Text("LX 同步", fontSize = 12.sp) }
         TvPill(onClick = onManageAccounts, selected = accountCount == 0) {
             Text("管理账号", fontSize = 12.sp)
         }
