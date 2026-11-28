@@ -6,8 +6,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -297,14 +301,36 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
         brightColor = effectiveBright,
         orbPrimary = orbPrimary,
         orbSecondary = orbSecondary,
+        showDebugInfo = settings.showDebugInfo,
         modifier = Modifier.fillMaxSize(),
       )
-      if (controlsVisible) {
+      AnimatedVisibility(
+        visible = controlsVisible,
+        enter = fadeIn(tween(220)),
+        exit = fadeOut(tween(180)),
+        modifier = Modifier.align(Alignment.TopCenter),
+      ) {
+        Box(
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(130.dp)
+            .background(
+              Brush.verticalGradient(
+                listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent)
+              )
+            )
+        )
+      }
+      AnimatedVisibility(
+        visible = controlsVisible,
+        enter = fadeIn(tween(220)),
+        exit = fadeOut(tween(180)),
+        modifier = Modifier.align(Alignment.BottomCenter),
+      ) {
         Box(
           modifier = Modifier
             .fillMaxWidth()
             .height(200.dp)
-            .align(Alignment.BottomCenter)
             .background(
               Brush.verticalGradient(
                 listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
@@ -331,6 +357,65 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 32.dp)) {
       if (isFoliaWebViewActive) {
+        // 顶部歌曲信息栏：随底部播放控制栏一起淡入淡出/轻滑隐藏，极低资源占用
+        AnimatedVisibility(
+          visible = controlsVisible,
+          enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { -it / 3 },
+          exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { -it / 3 },
+        ) {
+          Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              Text(
+                track.name,
+                color = AppColors.TextPrimary,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+              )
+              Box(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(50))
+                  .background(Color(0x660B0F19))
+                  .padding(horizontal = 10.dp, vertical = 3.dp),
+              ) {
+                Text(
+                  effectiveFoliaTemplate.label,
+                  color = effectiveBright,
+                  fontSize = 11.sp,
+                  fontWeight = FontWeight.Medium,
+                  maxLines = 1,
+                )
+              }
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+              buildString {
+                append(track.singer)
+                track.albumName?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+              },
+              color = AppColors.TextSecondary,
+              fontSize = 13.sp,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+            )
+            val status = state.error ?: (if (state.resolving) "正在获取播放地址…" else state.warning)
+            if (settings.showDebugInfo && status != null) {
+              Text(
+                status,
+                color = if (state.error != null) AppColors.Danger else AppColors.Warning,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+              )
+            }
+          }
+        }
         Spacer(Modifier.weight(1f))
       } else {
         // 主展示内容区 Row
@@ -422,7 +507,11 @@ fun PlayerScreen(onClose: () -> Unit, modifier: Modifier = Modifier) {
           modifier = Modifier.fillMaxWidth().height(40.dp),
         )
       }
-      AnimatedVisibility(visible = controlsVisible) {
+      AnimatedVisibility(
+        visible = controlsVisible,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 4 },
+        exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { it / 4 },
+      ) {
         Column {
           Spacer(Modifier.height(6.dp))
           ProgressBar(

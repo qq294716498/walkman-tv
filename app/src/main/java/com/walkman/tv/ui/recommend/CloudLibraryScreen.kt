@@ -635,23 +635,14 @@ private fun QishuiRadioSection(
                 modifier = Modifier.weight(1f),
             )
             TvPill(
-                onClick = onToggleExpand,
-                selected = expanded,
+                onClick = onViewActiveList,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (expanded) "收起电台类型" else "展开电台类型", fontSize = 12.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(
-                        if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+                Text("查看电台曲目", fontSize = 12.sp)
             }
         }
 
-        // Default compact bar: play current mode (defaults to 默认模式) + inspect tracks
+        // Default compact bar: play current mode (defaults to 默认模式) + expand/collapse radio modes
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -710,10 +701,19 @@ private fun QishuiRadioSection(
             }
 
             TvPill(
-                onClick = onViewActiveList,
+                onClick = onToggleExpand,
+                selected = expanded,
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
             ) {
-                Text("查看电台曲目", fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (expanded) "收起电台类型" else "展开电台类型", fontSize = 12.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         }
 
